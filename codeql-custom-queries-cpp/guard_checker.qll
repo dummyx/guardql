@@ -1,0 +1,109 @@
+import cpp
+import semmle.code.cpp.dataflow.new.DataFlow
+import semmle.code.cpp.Macro
+import semmle.code.cpp.exprs.Access
+import semmle.code.cpp.controlflow.ControlFlowGraph
+
+class ValueVariable extends Variable {
+  ValueVariable() { this.getType().getName() = "VALUE" }
+}
+
+class InnerPointerTakingFunction extends Function {
+  InnerPointerTakingFunction() { this.getType().getName() = "* VALUE" }
+}
+
+class GuardMacroInvocation extends MacroInvocation {
+  GuardMacroInvocation() { this.getMacroName() = "RB_GC_GUARD" }
+}
+
+class GuardFunction extends Function {
+  GuardFunction() { this.getName() = "RB_GC_GUARD" }
+}
+
+class InnerPointerTakingFunctionCall extends FunctionCall {
+  InnerPointerTakingFunctionCall() {
+    this.getAnArgument().getType().getName().matches("%* VALUE%") or
+    this.getTarget().getType().getName().matches("%* VALUE%")
+  }
+}
+
+// -------
+class GcTriggerFunctionCall extends FunctionCall {
+  GcTriggerFunctionCall() { this.getTarget().getName().matches("%garbage_collect%") }
+}
+
+class GuardedPtr extends Variable {
+  GuardedPtr() {
+    this.getType().getName() = "volatile VALUE *" and
+    this.getName() = "rb_gc_guarded_ptr"
+  }
+}
+
+
+class ValuePtrVariable extends Variable {
+  ValuePtrVariable() {
+    this.getType().getName() = "VALUE *"
+  }
+}
+
+class GuardFunctionCall extends FunctionCall {
+  GuardFunctionCall() { this.getTarget() instanceof GuardFunction }
+}
+
+// Configuration for tracking inner pointer usage
+module InnerPointerConfiguration implements DataFlow::ConfigSig {
+  predicate isSource(DataFlow::Node source) {
+    exists(ValueVariable v |
+      v.getAnAccess() = source.asExpr()
+    )
+  }
+
+  predicate isSink(DataFlow::Node sink) {
+    exists(ValuePtrVariable valuePtr |
+      sink.asExpr() = valuePtr.getAnAccess()
+    )
+  }
+}
+
+module InnerPointerFlow = DataFlow::Global<InnerPointerConfiguration>;
+predicate hasGuard(ValueVariable v) {
+  exists(DataFlow::Node sink, DataFlow::Node source, GuardedPtr guardedPtr |
+    sink.asExpr() = guardedPtr.getAnAccess() and
+    source.asExpr() = v.getAnAccess() and
+    DataFlow::localFlow(source, sink)
+  )
+}
+
+predicate tripleTransition(ControlFlowNode a, ControlFlowNode b, ControlFlowNode c) {
+  a.getASuccessor*() = b and b.getASuccessor*() = c
+}
+
+/*predicate isDirectGcTrigger(Function function) {
+  s = function.getAPredecessor*() 
+  and s.getAChild*() = call and call.getTarget().getName() = "gc_enter"
+}*/
+
+predicate isGcTrigger(Function function) {
+  exists (
+    Expr s, Call call | 
+    s = function.getAPredecessor*()
+  and s.getAChild*() = call and (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget())))
+}
+
+predicate isInnerPointerTaken(ValueVariable v, VariableAccess pointerAccess) {
+  exists(
+    DataFlow::Node sink, DataFlow::Node source |
+    sink.asExpr() = pointerAccess and 
+    source.asExpr() = v.getAnAccess() and
+    InnerPointerFlow::flow(sink, source)
+  )
+}
+
+predicate funcHasGuard(Function function) {
+  exists(
+    VariableAccess v, Expr expr |
+    expr = function.getAPredecessor*() and
+    v = expr.getAChild*() and v.getTarget().getName() = "rb_gc_guarded_ptr"
+  )
+}
+
