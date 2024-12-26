@@ -8,8 +8,20 @@ class ValueVariable extends Variable {
   ValueVariable() { this.getType().getName() = "VALUE" }
 }
 
-class InnerPointerTakingFunction extends Function {
-  InnerPointerTakingFunction() { this.getType().getName() = "* VALUE" }
+class InnerPointerTakingFunctionByType extends Function {
+  InnerPointerTakingFunctionByType() {
+    this.getAParameter().getType().getName() = "VALUE" and
+    (
+      this.getType().getName().matches("%*%") or 
+      this.getAParameter().getType().getName().matches("%*%")
+    )
+   }
+}
+
+class InnerPointerTakingFunctionCallByType extends FunctionCall {
+  InnerPointerTakingFunctionCallByType() {
+    this.getTarget() instanceof InnerPointerTakingFunctionByType
+   }
 }
 
 class GuardMacroInvocation extends MacroInvocation {
@@ -22,14 +34,9 @@ class GuardFunction extends Function {
 
 class InnerPointerTakingFunctionCall extends FunctionCall {
   InnerPointerTakingFunctionCall() {
-    this.getAnArgument().getType().getName().matches("%* VALUE%") or
-    this.getTarget().getType().getName().matches("%* VALUE%")
+    this.getAnArgument().getType().getName().matches("%VALUE %_") or
+    this.getTarget().getType().getName().matches("%VALUE %")
   }
-}
-
-// -------
-class GcTriggerFunctionCall extends FunctionCall {
-  GcTriggerFunctionCall() { this.getTarget().getName().matches("%garbage_collect%") }
 }
 
 class GuardedPtr extends Variable {
@@ -43,6 +50,15 @@ class GuardedPtr extends Variable {
 class ValuePtrVariable extends Variable {
   ValuePtrVariable() {
     this.getType().getName() = "VALUE *"
+  }
+}
+
+class InnerPointerTakingFunction extends Function {
+  InnerPointerTakingFunction() {
+    this.getName() in [
+      "rb_array_const_ptr",
+      
+    ]
   }
 }
 
@@ -88,6 +104,12 @@ predicate isGcTrigger(Function function) {
     Expr s, Call call | 
     s = function.getAPredecessor*()
   and s.getAChild*() = call and (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget())))
+}
+
+class GcTriggerCall extends FunctionCall {
+  GcTriggerCall() {
+    isGcTrigger(this.getTarget())
+  }
 }
 
 predicate isInnerPointerTaken(ValueVariable v, VariableAccess pointerAccess) {
