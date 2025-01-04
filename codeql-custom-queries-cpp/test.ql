@@ -30,7 +30,7 @@ from
 where
 
   vAccess = v.getAnAccess() and
-  vNode.asExpr() = vAccess // and
+  vNode.asExpr() = vAccess and
 
   
   guardedPtrAccess = guardedPtr.getAnAccess() and
