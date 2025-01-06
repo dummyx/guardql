@@ -8,6 +8,18 @@ class ValueVariable extends Variable {
   ValueVariable() { this.getType().getName() = "VALUE" }
 }
 
+class PointerVariable extends Variable {
+  PointerVariable() {
+    this.getType() instanceof PointerType
+  }
+}
+
+class PointerVariableAccess extends VariableAccess {
+  PointerVariableAccess() {
+    this.getTarget() instanceof PointerVariable
+  }
+}
+
 class InnerPointerTakingFunctionByType extends Function {
   InnerPointerTakingFunctionByType() {
     this.getAParameter().getType().getName() = "VALUE" and
@@ -17,6 +29,7 @@ class InnerPointerTakingFunctionByType extends Function {
     )
    }
 }
+
 
 class InnerPointerTakingFunctionCallByType extends FunctionCall {
   InnerPointerTakingFunctionCallByType() {
@@ -106,9 +119,15 @@ predicate isGcTrigger(Function function) {
   and s.getAChild*() = call and (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget())))
 }
 
+class GcTriggerFunction extends Function {
+  GcTriggerFunction() {
+    isGcTrigger(this)
+  }
+}
+
 class GcTriggerCall extends FunctionCall {
   GcTriggerCall() {
-    isGcTrigger(this.getTarget())
+    this.getTarget() instanceof GcTriggerFunction
   }
 }
 
