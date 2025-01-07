@@ -9,32 +9,27 @@ class ValueVariable extends Variable {
 }
 
 class PointerVariable extends Variable {
-  PointerVariable() {
-    this.getType() instanceof PointerType
-  }
+  PointerVariable() { this.getType() instanceof PointerType }
 }
 
 class PointerVariableAccess extends VariableAccess {
-  PointerVariableAccess() {
-    this.getTarget() instanceof PointerVariable
-  }
+  PointerVariableAccess() { this.getTarget() instanceof PointerVariable }
 }
 
 class InnerPointerTakingFunctionByType extends Function {
   InnerPointerTakingFunctionByType() {
     this.getAParameter().getType().getName() = "VALUE" and
     (
-      this.getType().getName().matches("%*%") or 
+      this.getType().getName().matches("%*%") or
       this.getAParameter().getType().getName().matches("%*%")
     )
-   }
+  }
 }
-
 
 class InnerPointerTakingFunctionCallByType extends FunctionCall {
   InnerPointerTakingFunctionCallByType() {
     this.getTarget() instanceof InnerPointerTakingFunctionByType
-   }
+  }
 }
 
 class GuardMacroInvocation extends MacroInvocation {
@@ -59,20 +54,12 @@ class GuardedPtr extends Variable {
   }
 }
 
-
 class ValuePtrVariable extends Variable {
-  ValuePtrVariable() {
-    this.getType().getName() = "VALUE *"
-  }
+  ValuePtrVariable() { this.getType().getName() = "VALUE *" }
 }
 
 class InnerPointerTakingFunction extends Function {
-  InnerPointerTakingFunction() {
-    this.getName() in [
-      "rb_array_const_ptr",
-      
-    ]
-  }
+  InnerPointerTakingFunction() { this.getName() in ["rb_array_const_ptr",] }
 }
 
 class GuardFunctionCall extends FunctionCall {
@@ -82,19 +69,16 @@ class GuardFunctionCall extends FunctionCall {
 // Configuration for tracking inner pointer usage
 module InnerPointerConfiguration implements DataFlow::ConfigSig {
   predicate isSource(DataFlow::Node source) {
-    exists(ValueVariable v |
-      v.getAnAccess() = source.asExpr()
-    )
+    exists(ValueVariable v | v.getAnAccess() = source.asExpr())
   }
 
   predicate isSink(DataFlow::Node sink) {
-    exists(ValuePtrVariable valuePtr |
-      sink.asExpr() = valuePtr.getAnAccess()
-    )
+    exists(ValuePtrVariable valuePtr | sink.asExpr() = valuePtr.getAnAccess())
   }
 }
 
 module InnerPointerFlow = DataFlow::Global<InnerPointerConfiguration>;
+
 predicate hasGuard(ValueVariable v) {
   exists(DataFlow::Node sink, DataFlow::Node source, GuardedPtr guardedPtr |
     sink.asExpr() = guardedPtr.getAnAccess() and
@@ -107,44 +91,41 @@ predicate tripleTransition(ControlFlowNode a, ControlFlowNode b, ControlFlowNode
   a.getASuccessor*() = b and b.getASuccessor*() = c
 }
 
-/*predicate isDirectGcTrigger(Function function) {
-  s = function.getAPredecessor*() 
-  and s.getAChild*() = call and call.getTarget().getName() = "gc_enter"
-}*/
+/*
+ * predicate isDirectGcTrigger(Function function) {
+ *  s = function.getAPredecessor*()
+ *  and s.getAChild*() = call and call.getTarget().getName() = "gc_enter"
+ * }
+ */
 
 predicate isGcTrigger(Function function) {
-  exists (
-    Expr s, Call call | 
-    s = function.getAPredecessor*()
-  and s.getAChild*() = call and (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget())))
+  exists(Expr s, Call call |
+    s = function.getAPredecessor*() and
+    s.getAChild*() = call and
+    (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget()))
+  )
 }
 
 class GcTriggerFunction extends Function {
-  GcTriggerFunction() {
-    isGcTrigger(this)
-  }
+  GcTriggerFunction() { isGcTrigger(this) }
 }
 
 class GcTriggerCall extends FunctionCall {
-  GcTriggerCall() {
-    this.getTarget() instanceof GcTriggerFunction
-  }
+  GcTriggerCall() { this.getTarget() instanceof GcTriggerFunction }
 }
 
 predicate isInnerPointerTaken(ValueVariable v, VariableAccess pointerAccess) {
-  exists(
-    DataFlow::Node sink, DataFlow::Node source |
-    sink.asExpr() = pointerAccess and 
+  exists(DataFlow::Node sink, DataFlow::Node source |
+    sink.asExpr() = pointerAccess and
     source.asExpr() = v.getAnAccess() and
     InnerPointerFlow::flow(sink, source)
   )
 }
 
 predicate funcHasGuard(Function function) {
-  exists(
-    VariableAccess v, Expr expr |
+  exists(VariableAccess v, Expr expr |
     expr = function.getAPredecessor*() and
-    v = expr.getAChild*() and v.getTarget().getName() = "rb_gc_guarded_ptr"
+    v = expr.getAChild*() and
+    v.getTarget().getName() = "rb_gc_guarded_ptr"
   )
 }
-
