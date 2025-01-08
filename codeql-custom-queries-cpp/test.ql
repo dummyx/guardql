@@ -1,5 +1,3 @@
-
-
 import cpp
 import semmle.code.cpp.dataflow.new.DataFlow
 import semmle.code.cpp.Macro
@@ -8,14 +6,9 @@ import semmle.code.cpp.controlflow.ControlFlowGraph
 
 import guard_checker
 
-// gc_enter
-// 
-
 from 
   ValueVariable v,
   VariableAccess vAccess,
-  Initializer vInit,
-
 
   GuardedPtr guardedPtr,
   PointerVariableAccess guardedPtrAccess,
@@ -31,10 +24,7 @@ from
   Assignment pointerAssignment,
   GcTriggerFunction funcInQuestion
 where
-
-
-  vAccess = v.getAnAccess() and
-  vInit = v.getInitializer() and
+  // vAccess = v.getAnAccess() and
 
   // scope constraint 
   funcInQuestion = vAccess.getEnclosingFunction() and
@@ -44,7 +34,7 @@ where
   pointerAssignment = funcInQuestion.getASuccessor*() and
   
   guardedPtrAccess = guardedPtr.getAnAccess() and
-  vNode.asExpr() = vAccess and
+  vNode.asVariable() = v and
   
   guardedPtrNode.asExpr() = guardedPtrAccess and
 
@@ -60,14 +50,13 @@ where
 
   // appears in right order
   // takes inner pointer -> gc trigger -> inner pointer usage -> guard
-  innerPtrTakingCall = vAccess.getASuccessor() and
+  // innerPtrTakingCall = vAccess.getASuccessor() and
   innerPtrTakingCall.getASuccessor() = gcTriggerCall and
   gcTriggerCall.getASuccessor() = pointerUsageAccess and
   pointerUsageAccess.getASuccessor() = guardedPtrAccess 
-
+  
   // guard
-  and DataFlow::localFlowStep(vNode, guardedPtrNode)
-
-
+  and 
+  DataFlow::localFlowStep(vNode, guardedPtrNode)
 
 select v
