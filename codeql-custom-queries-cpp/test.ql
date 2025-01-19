@@ -8,19 +8,13 @@ import guard_checker
 from ValueVariable v
 where
   exists(
-    VariableAccess vAccess, GuardedPtr guardedPtr, PointerVariableAccess guardedPtrAccess,
+    VariableAccess vAccess, PointerVariableAccess guardedPtrAccess,
     DataFlow::Node vNode, DataFlow::Node guardedPtrNode, DataFlow::Node pointerNode,
     InnerPointerTakingFunctionCallByType innerPtrTakingCall, GcTriggerCall gcTriggerCall,
     PointerVariableAccess pointerInitAccess, PointerVariableAccess pointerUsageAccess,
-    Assignment pointerAssignment, GcTriggerFunction funcInQuestion
+    Assignment pointerAssignment
   |
     vAccess = v.getAnAccess() and
-    funcInQuestion = vAccess.getEnclosingFunction() and
-    guardedPtrAccess = funcInQuestion.getASuccessor*() and
-    pointerInitAccess = funcInQuestion.getASuccessor*() and
-    pointerUsageAccess = funcInQuestion.getASuccessor*() and
-    pointerAssignment = funcInQuestion.getASuccessor*() and
-    guardedPtrAccess = guardedPtr.getAnAccess() and
     vNode.asVariable() = v and
     guardedPtrNode.asExpr() = guardedPtrAccess and
     // inner pointer taken and assigned
@@ -39,7 +33,6 @@ where
     gcTriggerCall.getASuccessor() = pointerUsageAccess and
     pointerUsageAccess.getASuccessor() = guardedPtrAccess and
     // guard
-    DataFlow::localFlowStep(vNode, guardedPtrNode)
+    DataFlow::localFlow(vNode, guardedPtrNode)
   )
-// scope constraint
 select v
