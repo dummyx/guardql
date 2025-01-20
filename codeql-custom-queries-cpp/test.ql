@@ -11,19 +11,12 @@ where
     VariableAccess vAccess, PointerVariableAccess guardedPtrAccess,
     DataFlow::Node vNode, DataFlow::Node guardedPtrNode, DataFlow::Node pointerNode,
     InnerPointerTakingFunctionCallByType innerPtrTakingCall, GcTriggerCall gcTriggerCall,
-    PointerVariableAccess pointerInitAccess, PointerVariableAccess pointerUsageAccess,
-    Assignment pointerAssignment
-  |
+    PointerVariableAccess pointerUsageAccess,
+    Assignment pointerAssignment  |
     vAccess = v.getAnAccess() and
     vNode.asVariable() = v and
     guardedPtrNode.asExpr() = guardedPtrAccess and
     // inner pointer taken and assigned
-    pointerInitAccess = innerPtrTakingCall.getAnArgument()
-    or
-    (
-      pointerAssignment.getLValue() = pointerInitAccess and
-      pointerAssignment.getRValue() = innerPtrTakingCall
-    ) and
     pointerNode.asExpr() = pointerUsageAccess and
     DataFlow::localFlow(vNode, pointerNode) and
     // appears in right order

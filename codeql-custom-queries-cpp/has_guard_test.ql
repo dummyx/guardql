@@ -7,8 +7,10 @@ import semmle.code.cpp.controlflow.ControlFlowGraph
 import guard_checker
 
 from 
-  ValueVariable v 
+  ValueVariable v, GuardedPtr gP, DataFlow::Node source, DataFlow::Node sink
 where
-  hasGuard(v)
+  source.asVariable() = v
+  and sink.asVariable() = gP
+  and DataFlow::localFlow(source, sink)
 
-select v, "Inner pointer potentially used after GC trigger without proper guard"
+select v, gP, "Inner pointer potentially used after GC trigger without proper guard"

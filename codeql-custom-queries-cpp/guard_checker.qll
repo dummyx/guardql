@@ -20,9 +20,9 @@ class InnerPointerTakingFunctionByType extends Function {
   InnerPointerTakingFunctionByType() {
     this.getAParameter().getType().getName() = "VALUE" and
     (
-      this.getType().getName().matches("%*%") or
-      this.getAParameter().getType().getName().matches("%*%")
-    )
+      this.getType() instanceof PointerType or
+      this.getAParameter().getType()  instanceof PointerType
+          )
   }
 }
 
@@ -34,10 +34,6 @@ class InnerPointerTakingFunctionCallByType extends FunctionCall {
 
 class GuardMacroInvocation extends MacroInvocation {
   GuardMacroInvocation() { this.getMacroName() = "RB_GC_GUARD" }
-}
-
-class GuardFunction extends Function {
-  GuardFunction() { this.getName() = "RB_GC_GUARD" }
 }
 
 class InnerPointerTakingFunctionCall extends FunctionCall {
@@ -60,10 +56,6 @@ class ValuePtrVariable extends Variable {
 
 class InnerPointerTakingFunction extends Function {
   InnerPointerTakingFunction() { this.getName() in ["rb_array_const_ptr",] }
-}
-
-class GuardFunctionCall extends FunctionCall {
-  GuardFunctionCall() { this.getTarget() instanceof GuardFunction }
 }
 
 // Configuration for tracking inner pointer usage
