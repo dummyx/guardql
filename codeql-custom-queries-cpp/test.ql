@@ -7,25 +7,26 @@ import guard_checker
 
 from ValueVariable v
 where
-  exists(
-    VariableAccess vAccess, PointerVariableAccess guardedPtrAccess,
+  not exists(
+    VariableAccess vAccess, GuardedPtr guardedPtr, PointerVariableAccess guardedPtrAccess,
     DataFlow::Node vNode, DataFlow::Node guardedPtrNode, DataFlow::Node pointerNode,
     InnerPointerTakingFunctionCallByType innerPtrTakingCall, GcTriggerCall gcTriggerCall,
-    PointerVariableAccess pointerUsageAccess,
-    Assignment pointerAssignment  |
+    PointerVariableAccess pointerUsageAccess
+  |
     vAccess = v.getAnAccess() and
-    vNode.asVariable() = v and
+    guardedPtrAccess = guardedPtr.getAnAccess() and
+  
+    
+    vNode.asExpr() = vAccess and
     guardedPtrNode.asExpr() = guardedPtrAccess and
-    // inner pointer taken and assigned
     pointerNode.asExpr() = pointerUsageAccess and
     DataFlow::localFlow(vNode, pointerNode) and
-    // appears in right order
-    // takes inner pointer -> gc trigger -> inner pointer usage -> guard
-    innerPtrTakingCall = vAccess.getASuccessor() and
-    innerPtrTakingCall.getASuccessor() = gcTriggerCall and
-    gcTriggerCall.getASuccessor() = pointerUsageAccess and
-    pointerUsageAccess.getASuccessor() = guardedPtrAccess and
-    // guard
+    
+    innerPtrTakingCall = vAccess.getASuccessor*() and
+    innerPtrTakingCall.getASuccessor*() = gcTriggerCall and
+    gcTriggerCall.getASuccessor*() = pointerUsageAccess and
+    pointerUsageAccess.getASuccessor*() = guardedPtrAccess and
+    
     DataFlow::localFlow(vNode, guardedPtrNode)
   )
 select v
