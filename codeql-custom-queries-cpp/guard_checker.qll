@@ -9,7 +9,9 @@ class ValueVariable extends Variable {
 }
 
 class PointerVariable extends Variable {
-  PointerVariable() { this.getType() instanceof PointerType }
+  PointerVariable() {
+    this.getType() instanceof PointerType or this.getType().getName().matches("%VALUE%")
+  }
 }
 
 class PointerVariableAccess extends VariableAccess {
@@ -21,8 +23,8 @@ class InnerPointerTakingFunctionByType extends Function {
     this.getAParameter().getType().getName() = "VALUE" and
     (
       this.getType() instanceof PointerType or
-      this.getAParameter().getType()  instanceof PointerType
-          )
+      this.getAParameter().getType() instanceof PointerType
+    )
   }
 }
 
@@ -124,48 +126,14 @@ predicate funcHasGuard(Function function) {
 
 predicate isNeedGuard(ValueVariable v) {
   exists(
-    VariableAccess vAccess, GuardedPtr guardedPtr, PointerVariableAccess guardedPtrAccess,
-    DataFlow::Node vNode, DataFlow::Node guardedPtrNode, DataFlow::Node pointerNode,
-    InnerPointerTakingFunctionCallByType innerPtrTakingCall, GcTriggerCall gcTriggerCall,
-    PointerVariableAccess pointerUsageAccess
+    VariableAccess vAccess, DataFlow::Node vNode, DataFlow::Node pointerNode,
+    GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
   |
     vAccess = v.getAnAccess() and
-    guardedPtrAccess = guardedPtr.getAnAccess() and
-  
-    
     vNode.asExpr() = vAccess and
-    guardedPtrNode.asExpr() = guardedPtrAccess and
     pointerNode.asExpr() = pointerUsageAccess and
     DataFlow::localFlow(vNode, pointerNode) and
-    
-    innerPtrTakingCall = vAccess.getASuccessor*() and
-    innerPtrTakingCall.getASuccessor*() = gcTriggerCall
-  )
-}
-
-
-
-predicate isProperlyGuarded(ValueVariable v) {
-  exists(
-    VariableAccess vAccess, GuardedPtr guardedPtr, PointerVariableAccess guardedPtrAccess,
-    DataFlow::Node vNode, DataFlow::Node guardedPtrNode, DataFlow::Node pointerNode,
-    InnerPointerTakingFunctionCallByType innerPtrTakingCall, GcTriggerCall gcTriggerCall,
-    PointerVariableAccess pointerUsageAccess
-  |
-    vAccess = v.getAnAccess() and
-    guardedPtrAccess = guardedPtr.getAnAccess() and
-  
-    
-    vNode.asExpr() = vAccess and
-    guardedPtrNode.asExpr() = guardedPtrAccess and
-    pointerNode.asExpr() = pointerUsageAccess and
-    DataFlow::localFlow(vNode, pointerNode) and
-    
-    innerPtrTakingCall = vAccess.getASuccessor*() and
-    innerPtrTakingCall.getASuccessor*() = gcTriggerCall and
-    gcTriggerCall.getASuccessor*() = pointerUsageAccess and
-    pointerUsageAccess.getASuccessor*() = guardedPtrAccess and
-    
-    DataFlow::localFlow(vNode, guardedPtrNode)
+    gcTriggerCall = vAccess.getASuccessor*() and
+    pointerUsageAccess.getASuccessor*() = gcTriggerCall
   )
 }
