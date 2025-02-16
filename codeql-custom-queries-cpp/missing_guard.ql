@@ -3,5 +3,5 @@ import guard_checker
 
 from ValueVariable v
 where
-  isNeedGuard(v) and not hasGuard(v)
+  isNeedGuard(v) and (not hasGuard(v))
 select v

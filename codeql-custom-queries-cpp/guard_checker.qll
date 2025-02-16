@@ -8,6 +8,10 @@ class ValueVariable extends Variable {
   ValueVariable() { this.getType().getName() = "VALUE" }
 }
 
+class ValueAccess extends VariableAccess {
+  ValueAccess() { this.getTarget() instanceof ValueVariable }
+}
+
 class PointerVariable extends Variable {
   PointerVariable() {
     this.getType() instanceof PointerType or this.getType().getName().matches("%VALUE%")
@@ -133,7 +137,8 @@ predicate isNeedGuard(ValueVariable v) {
     vNode.asExpr() = vAccess and
     pointerNode.asExpr() = pointerUsageAccess and
     DataFlow::localFlow(vNode, pointerNode) and
-    gcTriggerCall = vAccess.getASuccessor*() and
-    pointerUsageAccess.getASuccessor*() = gcTriggerCall
+    pointerUsageAccess = vAccess.getASuccessor*() and
+    pointerUsageAccess.getASuccessor*() = gcTriggerCall and
+    not exists(ValueAccess va | va.getTarget() = v and gcTriggerCall.getASuccessor*() = va)
   )
 }
