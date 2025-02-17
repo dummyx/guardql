@@ -102,6 +102,11 @@ predicate isGcTrigger(Function function) {
     s.getAChild*() = call and
     (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget()))
   )
+  or
+  exists(Variable v |
+    v = function.getAParameter() and
+    v.getType() instanceof FunctionPointerIshType
+  )
 }
 
 class GcTriggerFunction extends Function {
@@ -133,7 +138,7 @@ predicate isNeedGuard(ValueVariable v) {
     VariableAccess vAccess, DataFlow::Node vNode, DataFlow::Node pointerNode,
     GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
   |
-    vAccess = v.getAnAccess() and
+    vAccess.getTarget() = v and
     vNode.asExpr() = vAccess and
     pointerNode.asExpr() = pointerUsageAccess and
     DataFlow::localFlow(vNode, pointerNode) and
