@@ -8,6 +8,11 @@ class ValueVariable extends Variable {
   ValueVariable() { this.getType().getName() = "VALUE" }
 }
 
+
+class ValueVariableMatch extends Variable {
+  ValueVariableMatch() { this.getType().getName().matches("%VALUE%") }
+}
+
 class ValueAccess extends VariableAccess {
   ValueAccess() { this.getTarget() instanceof ValueVariable }
 }
@@ -136,14 +141,13 @@ predicate funcHasGuard(Function function) {
 predicate isNeedGuard(ValueVariable v) {
   exists(
     VariableAccess vAccess, DataFlow::Node vNode, DataFlow::Node pointerNode,
-    GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
-  |
+    GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess  |
     vAccess.getTarget() = v and
     vNode.asExpr() = vAccess and
     pointerNode.asExpr() = pointerUsageAccess and
     DataFlow::localFlow(vNode, pointerNode) and
-    pointerUsageAccess = vAccess.getASuccessor*() and
-    pointerUsageAccess.getASuccessor*() = gcTriggerCall and
-    not exists(ValueAccess va | va.getTarget() = v and gcTriggerCall.getASuccessor*() = va)
+    gcTriggerCall = vAccess.getASuccessor*() and
+    pointerUsageAccess = gcTriggerCall.getASuccessor*() and
+    not exists(ValueAccess va | va.getTarget() = v and va = gcTriggerCall.getASuccessor*())
   )
 }
