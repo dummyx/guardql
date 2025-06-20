@@ -79,11 +79,24 @@ module InnerPointerConfiguration implements DataFlow::ConfigSig {
 
 module InnerPointerFlow = DataFlow::Global<InnerPointerConfiguration>;
 
-predicate hasGuard(ValueVariable v) {
+predicate hasGuardByFlow(ValueVariable v) {
   exists(DataFlow::Node sink, DataFlow::Node source, GuardedPtr guardedPtr |
     sink.asExpr() = guardedPtr.getAnAccess() and
     source.asExpr() = v.getAnAccess() and
     DataFlow::localFlow(source, sink)
+  )
+}
+
+predicate hasGuard(ValueVariable v) {
+  exists(VariableDeclarationEntry decl |
+    decl.getVariable()
+        .getInitializer()
+        .getExpr()
+        .(AddressOfExpr)
+        .getAnOperand()
+        .(VariableAccess)
+        .getTarget() = v and
+    decl.getVariable().getName() = "rb_gc_guarded_ptr"
   )
 }
 
@@ -135,7 +148,7 @@ class GcTriggerFunctionWithFunctionPointer extends Function {
   GcTriggerFunctionWithFunctionPointer() { isGcTriggerWithFunctionPointer(this) }
 }
 
-class GcTriggerCall extends Expr {
+class GcTriggerCall extends FunctionCall {
   GcTriggerCall() {
     if this instanceof FunctionCall
     then this.(FunctionCall).getTarget() instanceof GcTriggerFunction
@@ -183,103 +196,100 @@ class InnerPointerTakingFunctionByName extends Function {
   }
 }
 
-/**
- * Matches struct field access that may access Ruby inner data
- */
-predicate isRubyStructFieldAccess(FieldAccess fa) {
-  fa.getTarget().getName() in ["ptr", "as", "heap", "ary"] and
-  fa.getQualifier().getType().getName().matches("RBasic%")
-  or
-  fa.getQualifier().getType().getName().matches("RString%")
-  or
-  fa.getQualifier().getType().getName().matches("RArray%")
-  or
-  fa.getQualifier().getType().getName().matches("RHash%")
-  or
-  fa.getQualifier().getType().getName().matches("RStruct%")
-}
 
-predicate isInnerPointerTaken(ValueVariable v, VariableAccess pointerAccess) {
-  exists(DataFlow::Node sink, DataFlow::Node source |
-    sink.asExpr() = pointerAccess and
-    source.asExpr() = v.getAnAccess() and
-    InnerPointerFlow::flow(sink, source)
-  )
-}
 
-predicate funcHasGuard(Function function) {
-  exists(VariableAccess v, Expr expr |
-    expr = function.getAPredecessor*() and
-    v = expr.getAChild*() and
-    v.getTarget().getName() = "rb_gc_guarded_ptr"
+//write a predicate that checks if the value of an argument of a function is used after a gc trigger call
+predicate isArgumentNotSave(GcTriggerFunction gcf, int i) {
+  exists(GcTriggerCall innerGcTriggerCall, PointerVariableAccess pAccess, Function f |
+    gcf.getAPredecessor+() = innerGcTriggerCall and
+    pAccess = innerGcTriggerCall.getASuccessor+() and
+    f.getParameter(i).getAnAccess() = pAccess
   )
 }
 
 predicate isNeedGuard(ValueVariable v) {
-  exists(
-    ControlFlowNode initVAccess,
-    // DataFlow::Node vNode,
-    //DataFlow::Node pointerUsageAccessNode,
-    // ValueAccess takingAccess,
-    PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
-    PointerVariableAccess pointerUsageAccess, Expr pointerTaking
-  |
-    (
-      initVAccess.(ValueAccess).getTarget() = v or
-      initVAccess.(Declaration).getADeclarationEntry().(VariableDeclarationEntry).getVariable() = v
+  exists(ControlFlowNode initVAccess, GcTriggerCall gcTriggerCall |
+    // PointerVariableAccess pointerUsageAccess, Expr pointerTaking, PointerVariable innerPointer
+    exists(PointerVariableAccess pointerUsageAccess, PointerVariable innerPointer |
+      (
+        initVAccess.(ValueAccess).getTarget() = v or
+        initVAccess.(Declaration).getADeclarationEntry().(VariableDeclarationEntry).getVariable() =
+          v
+      ) and
+      pointerUsageAccess.getTarget() = innerPointer and
+      gcTriggerCall = initVAccess.getASuccessor*() and
+      (
+        pointerUsageAccess = gcTriggerCall.getASuccessor*() or
+        pointerUsageAccess = gcTriggerCall.getEnclosingBlock().getASuccessor*()
+      ) and
+      (
+        exists(
+          Assignment assignment // Case 1: Assignment where innerPointer gets a value from v
+        |
+          // pointerTaking = assignment and
+          assignment.getLValue().getAChild*().(VariableAccess).getTarget() = innerPointer and
+          assignment.getRValue().getAChild*() instanceof InnerPointerTakingFunctionByNameCall and
+          assignment
+              .getRValue()
+              .getAChild*()
+              .(InnerPointerTakingFunctionByNameCall)
+              .getAnArgument()
+              .(ValueAccess)
+              .getTarget() = v
+        )
+        or
+        exists(
+          Declaration decl, VariableDeclarationEntry declEntry,
+          InnerPointerTakingFunctionByNameCall pointerTakingCall
+        |
+          // pointerTakingCall = pointerTaking and
+          decl.getADeclarationEntry() = declEntry and // Case 2: Declaration where innerPointer gets a value from v
+          declEntry.getVariable() = innerPointer and
+          innerPointer.getInitializer().getExpr() = pointerTakingCall and
+          pointerTakingCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
+        )
+        or
+        exists(
+          InnerPointerTakingFunctionByNameCall pointerTakingCall // Case 2: Direct call (not assignment)
+        |
+          // pointerTaking = pointerTakingCall and
+          (
+            pointerTakingCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v or
+            pointerTakingCall.getAnArgument().getAChild*().(FieldAccess).getQualifier() =
+              v.getAnAccess()
+          ) and
+          pointerTakingCall.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() =
+            innerPointer
+        )
+        or
+        exists(int i |
+          i < count(gcTriggerCall.getAnArgument()) and
+          innerPointer.getAnAccess() = gcTriggerCall.getArgument(i) and
+          isArgumentNotSave(gcTriggerCall.getTarget(), i)
+        )
+      )
     ) and
-    // takingAccess.getTarget() = v and
-    // vNode.asExpr() = takingAccess and
-    pointerUsageAccess.getTarget() = innerPointer and
-    // pointerUsageAccessNode.asExpr() = pointerUsageAccess and
-    // DataFlow::localFlowStep(vNode, pointerUsageAccessNode) and
-    gcTriggerCall = initVAccess.getASuccessor*() and
-    (pointerUsageAccess = gcTriggerCall.getASuccessor*() or pointerUsageAccess = gcTriggerCall.getEnclosingBlock().getASuccessor*() )and
-    // pointerTaking = initVAccess.getASuccessor*() and
-    (
-      exists(
-        Assignment assignment // Case 1: Assignment where innerPointer gets a value from v
-      |
-        pointerTaking = assignment and
-        // Check LValue: Must be an access to the innerPointer variable (covers assignment and initialization)
-        assignment.getLValue().getAChild*().(VariableAccess).getTarget() = innerPointer and
-        // Check RValue: Must be a specific function call using v
-        assignment.getRValue().getAChild*() instanceof InnerPointerTakingFunctionByNameCall and
-        assignment
-            .getRValue()
-            .getAChild*()
-            .(InnerPointerTakingFunctionByNameCall)
-            .getAnArgument()
-            .(ValueAccess)
-            .getTarget() = v
-      )
-      or
-      exists(
-        Declaration decl, VariableDeclarationEntry declEntry,
-        InnerPointerTakingFunctionByNameCall pointerTakingCall
-      |
-        pointerTakingCall = pointerTaking and
-        decl.getADeclarationEntry() = declEntry and // Case 2: Declaration where innerPointer gets a value from v
-        declEntry.getVariable() = innerPointer and
-        innerPointer.getInitializer().getExpr() = pointerTakingCall and
-        pointerTakingCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
-      )
-      or
-      exists(
-        InnerPointerTakingFunctionByNameCall pointerTakingCall // Case 2: Direct call (not assignment)
-      |
-        pointerTaking = pointerTakingCall and
-        (
-          pointerTakingCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v or
-          pointerTakingCall.getAnArgument().getAChild*().(FieldAccess).getQualifier() =
-            v.getAnAccess()
-        ) and
-        pointerTakingCall.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() =
-          innerPointer
-      )
-    ) and
-    not exists(VariableAccess va | va.getTarget() = v and va = gcTriggerCall.getASuccessor*() and not isGuardAccess(va))
-  )
+    not exists(VariableAccess va |
+      va.getTarget() = v and va = gcTriggerCall.getASuccessor*() and not isGuardAccess(va)
+    )
+    /*
+     * or
+     *    exists(int i |
+     *      i <count(gcTriggerCall.getAnArgument()) and
+     *      gcTriggerCall.getArgument(i).getAChild*() = v.getAnAccess() and
+     *      isArgumentNotSave(gcTriggerCall.getTarget(), i) and
+     *      gcTriggerCall.getArgument(i) != v.getAnAccess() and
+     *      not exists(VariableAccess va |
+     *        va.getTarget() = v and va = gcTriggerCall.getASuccessor*() and not isGuardAccess(va)
+     *      )
+     *    )
+     */
+
+    )
+}
+
+class PointerExpr extends Expr {
+  PointerExpr() { this.getType() instanceof PointerType }
 }
 
 predicate isGuardAccess(ValueAccess vAccess) {
