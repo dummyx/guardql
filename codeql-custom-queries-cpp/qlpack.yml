@@ -1,5 +1,5 @@
 # Change 'getting-started' to the name of a user or organization that you have write access to.
-name: getting-started/codeql-extra-queries-cpp
+name: prg-titech/guardql
 version: 0.0.0
 dependencies:
   # This uses the latest version of the codeql/cpp-all library.
