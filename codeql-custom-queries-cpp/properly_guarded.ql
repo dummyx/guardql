@@ -2,7 +2,7 @@
  * @name Properly Guarded VALUE Variables
  * @description Finds VALUE variables that need garbage collection guards and have them.
  *              These variables are correctly protected against garbage collection issues.
- * @kind table
+ * @kind problem
  * @id cpp/ruby/properly-guarded
  * @tags maintainability
  *       ruby

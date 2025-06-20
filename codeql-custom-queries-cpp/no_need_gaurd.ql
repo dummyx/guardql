@@ -3,7 +3,7 @@
  * @description Finds VALUE variables that do not need garbage collection guards.
  *              These variables are safe from garbage collection issues based on
  *              their usage patterns.
- * @kind table
+ * @kind problem
  * @id cpp/ruby/no-need-gc-guard
  * @tags maintainability
  *       ruby
