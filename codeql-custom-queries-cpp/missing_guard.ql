@@ -14,7 +14,7 @@
  */
 
 import cpp
-import guard_checker
+import lib.guard_checker
 
 from ValueVariable v
 where
