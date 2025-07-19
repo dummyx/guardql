@@ -19,6 +19,11 @@ predicate isInitialVariableAccess(ControlFlowNode node, ValueVariable v) {
 /**
  * Checks if there's an assignment where the RValue involves an InnerPointerTakingFunctionByNameCall
  * that takes the given ValueVariable as an argument, and assigns to the given PointerVariable.
+ * ```
+ * VALUE a;
+ * ptr* b;
+ * b = inner_pointer_taking_function(a);
+ * ```
  */
 predicate hasInnerPointerAssignment(ValueVariable v, PointerVariable innerPointer) {
   exists(Assignment assignment |
@@ -37,6 +42,11 @@ predicate hasInnerPointerAssignment(ValueVariable v, PointerVariable innerPointe
 /**
  * Checks if there's a declaration of a PointerVariable initialized with an InnerPointerTakingFunctionByNameCall
  * that takes the given ValueVariable as an argument.
+ * 
+ * ```
+ * VALUE a;
+ * ptr* b = inner_pointer_taking_function(a);
+ * ```
  */
 predicate hasInnerPointerDeclaration(ValueVariable v, PointerVariable innerPointer) {
   exists(
@@ -53,6 +63,11 @@ predicate hasInnerPointerDeclaration(ValueVariable v, PointerVariable innerPoint
 /**
  * Checks if there's an InnerPointerTakingFunctionByNameCall that takes both the ValueVariable
  * and the PointerVariable as arguments (directly or through field access).
+ * ```
+ * VALUE a;
+ * ptr* b;
+ * inner_pointer_taking_function(a, b);
+ * ```
  */
 predicate hasInnerPointerFunctionCall(ValueVariable v, PointerVariable innerPointer) {
   exists(InnerPointerTakingFunctionByNameCall pointerTakingCall |
@@ -69,7 +84,7 @@ predicate hasInnerPointerFunctionCall(ValueVariable v, PointerVariable innerPoin
 /**
  * Checks if any of the inner pointer patterns exist for the given variables.
  */
-predicate hasInnerPointerPattern(ValueVariable v, PointerVariable innerPointer) {
+predicate hasInnerPointerTakenPattern(ValueVariable v, PointerVariable innerPointer) {
   hasInnerPointerAssignment(v, innerPointer)
   or
   hasInnerPointerDeclaration(v, innerPointer)
@@ -96,8 +111,8 @@ predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCa
   )
 }
 
-predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
-  exists(VariableAccess va |
+predicate accessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
+  not exists(VariableAccess va |
     va.getTarget() = v and va = gcTriggerCall.getASuccessor*() and not isGuardAccess(va)
   )
 }

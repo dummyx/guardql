@@ -6,7 +6,6 @@ import semmle.code.cpp.Macro
 import semmle.code.cpp.exprs.Access
 import semmle.code.cpp.controlflow.ControlFlowGraph
 
-
 predicate hasGuard(ValueVariable v) {
   exists(VariableDeclarationEntry decl |
     decl.getVariable()
@@ -124,7 +123,6 @@ class InnerPointerTakingFunctionByName extends Function {
   }
 }
 
-//write a predicate that checks if the value of an argument of a function is used after a gc trigger call
 predicate isArgumentNotSafe(GcTriggerFunction gcf, int i) {
   exists(GcTriggerCall innerGcTriggerCall, VariableAccess pAccess |
     gcf.getAPredecessor+() = innerGcTriggerCall and
@@ -146,13 +144,13 @@ predicate isNeedGuard(ValueVariable v) {
       exists(PointerVariableAccess pointerUsageAccess, PointerVariable innerPointer |
         isInitialVariableAccess(initVAccess, v) and
         pointerUsageAccess.getTarget() = innerPointer and
-        isPointerUsedAfterGcTrigger(pointerUsageAccess, gcTriggerCall) and
-        hasInnerPointerPattern(v, innerPointer)
+        hasInnerPointerTakenPattern(v, innerPointer) and
+        isPointerUsedAfterGcTrigger(pointerUsageAccess, gcTriggerCall)
       )
       or
       passedToGcTrigger(v, initVAccess.(ValueAccess), gcTriggerCall)
     ) and
-    not notAccessedAfterGcTrigger(v, gcTriggerCall)
+    accessedAfterGcTrigger(v, gcTriggerCall)
   )
 }
 
