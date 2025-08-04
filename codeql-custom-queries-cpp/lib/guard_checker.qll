@@ -123,16 +123,16 @@ class InnerPointerTakingFunctionByName extends Function {
   }
 }
 
-predicate isArgumentNotSafe(GcTriggerFunction gcf, int i) {
+predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
   exists(GcTriggerCall innerGcTriggerCall, VariableAccess pAccess |
-    gcf.getAPredecessor+() = innerGcTriggerCall and
+    gcTriggerFunc.getAPredecessor+() = innerGcTriggerCall and
     pAccess = innerGcTriggerCall.getASuccessor+() and
-    gcf.getParameter(i).getAnAccess() = pAccess
+    gcTriggerFunc.getParameter(i).getAnAccess() = pAccess
   )
   or
   exists(GcTriggerCall recursiveGcTriggerCall, int j |
-    recursiveGcTriggerCall = gcf.getAPredecessor+() and
-    gcf.getParameter(i).getAnAccess() = recursiveGcTriggerCall.getAnArgumentSubExpr(j) and
+    recursiveGcTriggerCall = gcTriggerFunc.getAPredecessor+() and
+    gcTriggerFunc.getParameter(i).getAnAccess() = recursiveGcTriggerCall.getAnArgumentSubExpr(j) and
     isArgumentNotSafe(recursiveGcTriggerCall.getTarget(), j)
   )
 }
@@ -155,9 +155,9 @@ predicate isNeedGuard(ValueVariable v) {
 }
 
 predicate isGuardAccess(ValueAccess vAccess) {
-  exists(VariableDeclarationEntry declEntry, GuardedPtr gPtr |
-    declEntry.getVariable() = gPtr and
-    gPtr.getName() = "rb_gc_guarded_ptr" and
-    gPtr.getInitializer().getExpr().getAChild*() = vAccess
+  exists(VariableDeclarationEntry declEntry, GuardedPtr guardPtr |
+    declEntry.getVariable() = guardPtr and
+    guardPtr.getName() = "rb_gc_guarded_ptr" and
+    guardPtr.getInitializer().getExpr().getAChild*() = vAccess
   )
 }
