@@ -17,5 +17,5 @@ import lib.guard_checker
 
 from ValueVariable v
 where
-  hasGuard(v) and not isNeedGuard(v)
+  hasGuard(v) and not needsGuard(v)
 select v, "VALUE variable '" + v.getName() + "' has a redundant guard."

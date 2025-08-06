@@ -17,5 +17,5 @@ import lib.guard_checker
 
 from ValueVariable v
 where
-  not isNeedGuard(v)
+  not needsGuard(v)
 select v, "VALUE variable '" + v.getName() + "' is safe and does not need a garbage collection guard."
