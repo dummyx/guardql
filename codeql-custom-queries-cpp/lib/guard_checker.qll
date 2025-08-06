@@ -161,3 +161,101 @@ predicate isGuardAccess(ValueAccess vAccess) {
     guardPtr.getInitializer().getExpr().getAChild*() = vAccess
   )
 }
+
+
+/**
+ * Broader pattern detection for variables that might need guards
+ */
+predicate mightNeedGuard(ValueVariable v) {
+  exists(FunctionCall innerPtrCall |
+    // Inner pointer extraction from the variable
+    innerPtrCall.getTarget().getName() in [
+        "RSTRING_PTR", "RARRAY_PTR", "RARRAY_CONST_PTR", "RHASH_TBL", "RSTRUCT_PTR", "DATA_PTR",
+        "RREGEXP_PTR", "RFILE_PTR", "rb_string_value_ptr", "rb_string_value_cstr", "StringValueCStr"
+      ] and
+    innerPtrCall.getAnArgument().(VariableAccess).getTarget() = v
+  )
+  or
+  exists(FunctionCall allocCall |
+    // Variable used around allocation calls
+    allocCall.getTarget().getName().matches("rb_%") and
+    (
+      allocCall.getTarget().getName().matches("%new%") or
+      allocCall.getTarget().getName().matches("%alloc%") or
+      allocCall.getTarget().getName().matches("%resize%")
+    ) and
+    exists(VariableAccess vAccess |
+      vAccess.getTarget() = v and
+      (
+        vAccess = allocCall.getASuccessor+() or
+        allocCall = vAccess.getASuccessor+()
+      )
+    )
+  )
+  or
+  // Variable passed to functions that might store references
+  exists(FunctionCall call, VariableAccess vAccess |
+    vAccess.getTarget() = v and
+    call.getAnArgument() = vAccess and
+    call.getTarget().getName().matches("rb_%")
+  )
+}
+
+/**
+ * String-specific guard detection
+ */
+predicate stringNeedsGuard(ValueVariable v) {
+  exists(FunctionCall rStringPtr, FunctionCall potentialGc |
+    // RSTRING_PTR called on variable
+    rStringPtr.getTarget().hasName("RSTRING_PTR") and
+    rStringPtr.getAnArgument().(VariableAccess).getTarget() = v and
+    // Followed by potential GC trigger
+    rStringPtr.getASuccessor+() = potentialGc and
+    (
+      potentialGc.getTarget().getName().matches("rb_str_%") or
+      potentialGc.getTarget().getName().matches("rb_ary_%") or
+      potentialGc.getTarget().getName().matches("rb_hash_%") or
+      potentialGc.getTarget().getName() in ["ALLOC", "ALLOC_N", "rb_funcall"]
+    )
+  )
+}
+
+/**
+ * Parameter-based guard detection
+ */
+predicate parameterNeedsGuard(ValueVariable v) {
+  exists(Parameter param, Function f, FunctionCall allocCall |
+    v = param and
+    param.getFunction() = f and
+    allocCall.getEnclosingFunction() = f and
+    allocCall.getTarget().getName().matches("rb_%") and
+    exists(VariableAccess laterUse |
+      laterUse.getTarget() = v and
+      allocCall.getASuccessor+() = laterUse
+    )
+  )
+}
+
+/**
+ * Comprehensive guard need detection
+ */
+predicate comprehensiveNeedsGuard(ValueVariable v) {
+  mightNeedGuard(v) or stringNeedsGuard(v) or parameterNeedsGuard(v)
+}
+
+/**
+ * Check if variable is in an extension (ext/) - these often have more guards
+ */
+predicate isInExtension(ValueVariable v) { v.getFile().getAbsolutePath().matches("%/ext/%") }
+
+/**
+ * Check if variable name suggests it holds string data
+ */
+predicate isStringVariable(ValueVariable v) {
+  v.getName().matches("%str%") or
+  v.getName().matches("%string%") or
+  v.getName().matches("%data%") or
+  v.getName().matches("%buf%") or
+  v.getName().matches("%msg%") or
+  v.getName().matches("%text%")
+}

@@ -1,3 +1,5 @@
 # CodeQL compilation caches
 .cache/
 *db/
+*.csv
+*.bqrs
