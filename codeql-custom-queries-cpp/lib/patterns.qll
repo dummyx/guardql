@@ -112,7 +112,7 @@ predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCa
 }
 
 predicate accessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
-  not exists(VariableAccess va |
-    va.getTarget() = v and va = gcTriggerCall.getASuccessor*() and not isGuardAccess(va)
+  exists(VariableAccess va |
+    va.getTarget() = v and va = gcTriggerCall.getASuccessor+() and not isGuardAccess(va)
   )
 }

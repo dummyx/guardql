@@ -13,8 +13,57 @@
 
 import cpp
 import lib.guard_checker
+import lib.improved_guard_checker
+import lib.types
+
+/**
+ * Enhanced properly guarded detection
+ */
+predicate isProperlyGuarded(ValueVariable v) {
+  // Pattern 1: Variables that have clear guard needs and guards
+  comprehensiveNeedsGuard(v) and hasGuardEnhanced(v)
+  or
+  // Pattern 2: String variables with RSTRING_PTR usage and guards
+  exists(FunctionCall rStringPtr |
+    rStringPtr.getTarget().hasName("RSTRING_PTR") and
+    rStringPtr.getAnArgument().(VariableAccess).getTarget() = v and
+    hasGuardEnhanced(v)
+  )
+  or
+  // Pattern 3: Variables in extensions that are guarded (extensions often need more guards)
+  isInExtension(v) and hasGuardEnhanced(v) and isStringVariable(v)
+  or
+  // Pattern 4: Variables used with inner pointer functions and guarded
+  exists(FunctionCall innerCall |
+    innerCall.getTarget().getName() in [
+      "RSTRING_PTR", "RARRAY_PTR", "RARRAY_CONST_PTR", "RHASH_TBL"
+    ] and
+    innerCall.getAnArgument().(VariableAccess).getTarget() = v and
+    hasGuardEnhanced(v)
+  )
+  or
+  // Pattern 5: Function parameters that are guarded
+  exists(Parameter param |
+    v = param and
+    param.getType().getName() = "VALUE" and
+    hasGuardEnhanced(v) and
+    // Parameter is used meaningfully in the function
+    exists(VariableAccess use |
+      use.getTarget() = v and
+      (
+        exists(FunctionCall call | call.getAnArgument() = use) or
+        exists(Assignment assign | assign.getRValue().getAChild*() = use)
+      )
+    )
+  )
+}
 
 from ValueVariable v
 where
-  isNeedGuard(v) and hasGuard(v)
+  isProperlyGuarded(v) and
+  // Quality filters
+  v.getName().length() > 1 and
+  not v.getName().matches("tmp%") and
+  // Ensure it's actually guarded
+  hasGuardEnhanced(v)
 select v, "VALUE variable '" + v.getName() + "' is properly guarded against garbage collection."
