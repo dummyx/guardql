@@ -116,3 +116,44 @@ predicate accessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
     va.getTarget() = v and va = gcTriggerCall.getASuccessor+() and not isGuardAccess(va)
   )
 }
+
+/**
+ * Detects direct inline pointer usage pattern: func(RSTRING_PTR(str))
+ * where str is used directly without being stored in an intermediate pointer variable
+ */
+predicate directInlinePointerUsage(ValueVariable v, FunctionCall gcTrigger, FunctionCall laterCall) {
+  exists(FunctionCall ptrExtract |
+    // Inner pointer extraction directly used as argument
+    ptrExtract.getTarget().getName() in [
+        "RSTRING_PTR", "RARRAY_PTR", "RARRAY_CONST_PTR", "RHASH_TBL", "RSTRUCT_PTR", 
+        "DATA_PTR", "RREGEXP_PTR", "rb_string_value_ptr", "rb_string_value_cstr", 
+        "StringValueCStr", "rb_str_ptr_readonly", "RBIGNUM_DIGITS"
+    ] and
+    ptrExtract.getAnArgument().(VariableAccess).getTarget() = v and
+    
+    // GC trigger occurs
+    ptrExtract.getASuccessor+() = gcTrigger and
+    gcTrigger.getTarget().getName() in [
+        "rb_str_new", "rb_str_buf_new", "rb_str_resize", "rb_str_concat", "rb_str_append", 
+        "rb_ary_new", "rb_ary_push", "rb_ary_concat", "rb_ary_store",
+        "rb_hash_new", "rb_hash_aset", "rb_hash_lookup2",
+        "rb_obj_alloc", "rb_class_new_instance", "rb_funcall",
+        "ALLOC", "ALLOC_N", "REALLOC_N"
+    ] and
+    
+    // Later call uses the same pointer extraction pattern
+    gcTrigger.getASuccessor+() = laterCall and
+    exists(FunctionCall laterPtrExtract |
+      laterCall.getAnArgument() = laterPtrExtract and
+      laterPtrExtract.getTarget().getName() = ptrExtract.getTarget().getName() and
+      laterPtrExtract.getAnArgument().(VariableAccess).getTarget() = v
+    ) and
+    
+    // All in same function
+    exists(Function f |
+      ptrExtract.getEnclosingFunction() = f and
+      gcTrigger.getEnclosingFunction() = f and
+      laterCall.getEnclosingFunction() = f
+    )
+  )
+}

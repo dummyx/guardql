@@ -138,19 +138,65 @@ predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
 }
 
 predicate needsGuard(ValueVariable v) {
-  exists(ControlFlowNode initVAccess, GcTriggerCall gcTriggerCall |
-    initVAccess.getASuccessor*() = gcTriggerCall and
-    (
-      exists(PointerVariableAccess pointerUsageAccess, PointerVariable innerPointer |
-        isInitialVariableAccess(initVAccess, v) and
-        pointerUsageAccess.getTarget() = innerPointer and
-        hasInnerPointerTakenPattern(v, innerPointer) and
-        isPointerUsedAfterGcTrigger(pointerUsageAccess, gcTriggerCall)
-      )
-      or
-      passedToGcTrigger(v, initVAccess.(ValueAccess), gcTriggerCall)
+  // Pattern 1: Stored pointer variable usage
+  exists(
+    FunctionCall ptrExtract, FunctionCall gcTrigger, VariableAccess ptrUse, Assignment ptrAssign,
+    PointerVariable innerPtr
+  |
+    // 1. Inner pointer extracted: ptr = RSTRING_PTR(value) or similar
+    ptrExtract.getTarget().getName() in [
+        "RSTRING_PTR", "RARRAY_PTR", "RARRAY_CONST_PTR", "RHASH_TBL", "RSTRUCT_PTR", 
+        "DATA_PTR", "RREGEXP_PTR", "rb_string_value_ptr", "rb_string_value_cstr", 
+        "StringValueCStr", "rb_str_ptr_readonly", "RBIGNUM_DIGITS"
+    ] and
+    ptrExtract.getAnArgument().(VariableAccess).getTarget() = v and
+    
+    // 2. Assigned to a pointer variable
+    ptrAssign.getRValue() = ptrExtract and
+    ptrAssign.getLValue().(VariableAccess).getTarget() = innerPtr and
+    
+    // 3. GC trigger after extraction but before pointer usage
+    ptrExtract.getASuccessor+() = gcTrigger and
+    isCommonGcTrigger(gcTrigger.getTarget()) and
+    
+    // 4. Pointer used after GC trigger
+    ptrUse.getTarget() = innerPtr and
+    gcTrigger.getASuccessor+() = ptrUse and
+    
+    // 5. Meaningful usage of pointer (not just assignment back to VALUE)
+    exists(Expr parent | parent = ptrUse.getParent() |
+      parent instanceof ArrayExpr or
+      parent instanceof PointerDereferenceExpr or
+      (parent instanceof FunctionCall and 
+       not parent.(FunctionCall).getTarget().getName() in ["rb_str_new", "rb_str_new_cstr"]) or
+      (parent instanceof Assignment and parent.(Assignment).getRValue() = ptrUse)
     ) and
-    accessedAfterGcTrigger(v, gcTriggerCall)
+    
+    // 6. All within same function to ensure control flow validity
+    exists(Function f |
+      ptrExtract.getEnclosingFunction() = f and
+      gcTrigger.getEnclosingFunction() = f and
+      ptrUse.getEnclosingFunction() = f
+    ) and
+    
+    // 7. Not already guarded
+    not exists(VariableDeclarationEntry guardDecl, ControlFlowNode guardNode |
+      guardDecl.getVariable().getName() = "rb_gc_guarded_ptr" and
+      guardDecl.getVariable().getInitializer().getExpr().getAChild*().(VariableAccess).getTarget() = v and
+      guardNode.getLocation() = guardDecl.getLocation() and
+      ptrUse.getASuccessor+() = guardNode
+    )
+  )
+  or
+  // Pattern 2: Direct inline pointer usage
+  exists(FunctionCall gcTrigger, FunctionCall laterCall |
+    directInlinePointerUsage(v, gcTrigger, laterCall) and
+    not exists(VariableDeclarationEntry guardDecl, ControlFlowNode guardNode |
+      guardDecl.getVariable().getName() = "rb_gc_guarded_ptr" and
+      guardDecl.getVariable().getInitializer().getExpr().getAChild*().(VariableAccess).getTarget() = v and
+      guardNode.getLocation() = guardDecl.getLocation() and
+      laterCall.getASuccessor+() = guardNode
+    )
   )
 }
 
