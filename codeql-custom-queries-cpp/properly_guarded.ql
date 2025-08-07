@@ -59,10 +59,7 @@ predicate isProperlyGuarded(ValueVariable v) {
 
 from ValueVariable v
 where
-  isProperlyGuarded(v) and
-  // Quality filters
-  v.getName().length() > 1 and
-  not v.getName().matches("tmp%") and
+  needsGuard(v) and
   // Ensure it's actually guarded
   hasGuard(v)
 select v, "VALUE variable '" + v.getName() + "' is properly guarded against garbage collection."

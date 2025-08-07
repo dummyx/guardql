@@ -18,9 +18,6 @@ import lib.guard_checker
 import lib.patterns
 import lib.types
 
-/**
- * Common GC-triggering functions in CRuby (balanced precision)
- */
 
 from ValueVariable v
 where
