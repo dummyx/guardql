@@ -113,12 +113,46 @@ class InnerPointerTakingFunctionByNameCall extends FunctionCall {
 class InnerPointerTakingFunctionByName extends Function {
   InnerPointerTakingFunctionByName() {
     this.getName() in [
-        "RSTRING_PTR", "RARRAY_PTR", "RHASH_TBL", "RSTRUCT_PTR", "DATA_PTR", "RREGEXP_PTR",
-        "RVECTOR_PTR", "RFILE_PTR", "RBASIC", "Data_Get_Struct", "TypedData_Get_Struct",
-        "rb_struct_ptr", "rb_ary_ptr", "rb_string_value_ptr", "rb_ary_const_ptr",
-        "rb_array_const_ptr", "RARRAY_CONST_PTR", "RSTRING_END", "rb_reg_nth_match",
-        "RTYPEDDATA_GET_DATA", "rb_string_value_cstr", "StringValueCStr", "rb_str_ptr_readonly",
-        "rb_match_ptr", "rb_io_stdio_file", "RBIGNUM_DIGITS",
+        "RSTRING_PTR",
+        "RSTRING_END",
+        "RSTRING_GETMEM",
+        "RARRAY_PTR",
+        "RARRAY_CONST_PTR",
+        "RARRAY_PTR_USE",
+        "rb_array_const_ptr",
+        "rb_ary_ptr_use_start",
+        "rb_ary_ptr_use_end",
+        "DATA_PTR",
+        "rb_data_object_get",
+        "Data_Get_Struct",
+        "RTYPEDDATA_DATA",
+        "RTYPEDDATA_GET_DATA",
+        "TypedData_Get_Struct",
+        "rb_check_typeddata",
+        "RREGEXP_PTR",
+        "RREGEXP_SRC_PTR",
+        "RSTRUCT_PTR",
+        "rb_struct_ptr",
+        "ROBJECT_IVPTR",
+        "RFILE",
+        "RB_IO_POINTER",
+        "GetOpenFile",
+        "RMATCH",
+        "RMATCH_EXT",
+        "RMATCH_REGS",
+        "StringValuePtr",
+        "StringValueCStr",
+        "rb_string_value_ptr",
+        "rb_string_value_cstr",
+        "rb_gc_guarded_ptr",
+        "rb_gc_guarded_ptr_val",
+        "FilePathValue",
+        "rb_fd_ptr",
+        "rb_memory_view_get_item_pointer",
+        "rb_ractor_local_storage_ptr",
+        "rb_errno_ptr",
+        "rb_ruby_verbose_ptr",
+        "rb_ruby_debug_ptr"
       ]
   }
 }
@@ -137,22 +171,25 @@ predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
   )
 }
 
-predicate needsGuard(ValueVariable v) {
-  exists(ControlFlowNode initVAccess, GcTriggerCall gcTriggerCall |
-    initVAccess.getASuccessor*() = gcTriggerCall and
-    (
-      exists(PointerVariableAccess pointerUsageAccess, PointerVariable innerPointer |
-        isInitialVariableAccess(initVAccess, v) and
-        pointerUsageAccess.getTarget() = innerPointer and
-        hasInnerPointerTakenPattern(v, innerPointer) and
-        isPointerUsedAfterGcTrigger(pointerUsageAccess, gcTriggerCall)
-      )
-      or
-      passedToGcTrigger(v, initVAccess.(ValueAccess), gcTriggerCall)
-    ) and
-    accessedAfterGcTrigger(v, gcTriggerCall)
-  )
+predicate needsGuard(
+  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
+  PointerVariableAccess pointerUsageAccess, ControlFlowNode innerPointerTaking
+) {
+  isTarget(v) and
+  v.getAnAccess().getASuccessor*() = gtc and
+  isInitialVariableAccess(v.getAnAccess(), v) and
+  innerPointer != v and
+  pointerUsageAccess.getTarget() = innerPointer and
+  isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
+  // and not exists(ValueAccess va | gtc.getASuccessor*() = va)
+  /*
+   * or
+   *      passedToGcTrigger(v, initVAccess.(ValueAccess), gcTriggerCall)
+   */
+  not accessedAfterGcTrigger(v, gtc) and
+  hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
 }
+
 
 predicate isGuardAccess(ValueAccess vAccess) {
   exists(VariableDeclarationEntry declEntry, GuardedPtr guardPtr |
@@ -160,4 +197,51 @@ predicate isGuardAccess(ValueAccess vAccess) {
     guardPtr.getName() = "rb_gc_guarded_ptr" and
     guardPtr.getInitializer().getExpr().getAChild*() = vAccess
   )
+}
+
+string getGuardInsertionLine(ValueVariable v) {
+  result = v.getDefinitionLocation().getEndLine().toString()
+}
+
+string getGuardInsertionLineEOS(ValueVariable v) {
+  if v.getParentScope() instanceof BlockStmt
+  then result = v.getParentScope().(BlockStmt).getLastStmt().getLocation().getEndLine().toString()
+  else
+    if v.getParentScope() instanceof Function
+    then
+      result =
+        v.getParentScope().(Function).getBlock().getLastStmt().getLocation().getEndLine().toString()
+    else result = "none"
+  // result = v.getDefinitionLocation().getEndLine().toString()
+}
+
+string getGuardInsertionLineBR(ValueVariable v) {
+  if
+    exists(ReturnStmt rstmt |
+      v.getAnAccess().getASuccessor+() = rstmt and
+      not exists(ReturnStmt lrstmt | lrstmt = rstmt.getASuccessor+()) and
+      result = rstmt.getLocation().getEndLine().toString()
+    )
+  then any()
+  else result = v.getParentScope().getLocation().getEndLine().toString()
+}
+
+string getGuardInsertionLineBRLA(ValueVariable v) {
+  exists(ValueAccess lva |
+    not exists(ValueAccess va | va = lva.getASuccessor+()) and
+    result = lva.getLocation().getEndLine().toString()
+  )
+}
+
+predicate isTarget(ValueVariable v) {
+  v.getEnclosingElement() instanceof TopLevelFunction and
+  // v.getIniti and
+  not exists(Parameter p | v = p) and
+  not v.getFile().toString().matches("%.h") and
+  not v.getADeclarationEntry().isInMacroExpansion() and
+  not v.getFile().toString().matches("%.inc") and
+  not v.getFile().toString().matches("%.y") and
+  not v.getFile().toString().matches("%.erb") and
+  //ignore generated files
+  not v.getFile().toString().matches("api_nodes.c")
 }
