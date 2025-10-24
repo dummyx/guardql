@@ -176,11 +176,11 @@ predicate needsGuard(
   PointerVariableAccess pointerUsageAccess, ControlFlowNode innerPointerTaking
 ) {
   (
-    v.getParentScope*().(Function) = gtc.getEnclosingFunction() and
-    gtc.getEnclosingFunction() = innerPointerTaking.getEnclosingElement*().(Function)
+    gtc.getControlFlowScope() = v.getParentScope*().(Function)  and
+    gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
   isTarget(v) and
-  v.getAnAccess().getASuccessor*() = gtc and
+  after(v.getAnAccess(), gtc) and
   // residue
   // isInitialVariableAccess(v.getAnAccess(), v) and
   innerPointer != v and
