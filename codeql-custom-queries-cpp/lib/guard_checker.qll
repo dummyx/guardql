@@ -175,21 +175,27 @@ predicate needsGuard(
   ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
   PointerVariableAccess pointerUsageAccess, ControlFlowNode innerPointerTaking
 ) {
+  (
+    v.getParentScope*().(Function) = gtc.getEnclosingFunction() and
+    gtc.getEnclosingFunction() = innerPointerTaking.getEnclosingElement*().(Function)
+  ) and
   isTarget(v) and
   v.getAnAccess().getASuccessor*() = gtc and
-  isInitialVariableAccess(v.getAnAccess(), v) and
+  // residue
+  // isInitialVariableAccess(v.getAnAccess(), v) and
   innerPointer != v and
   pointerUsageAccess.getTarget() = innerPointer and
   isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
+  // disable interprocedural pointer usage for now
   // and not exists(ValueAccess va | gtc.getASuccessor*() = va)
   /*
    * or
    *      passedToGcTrigger(v, initVAccess.(ValueAccess), gcTriggerCall)
    */
-  not accessedAfterGcTrigger(v, gtc) and
+
+  notAccessedAfterGcTrigger(v, gtc) and
   hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
 }
-
 
 predicate isGuardAccess(ValueAccess vAccess) {
   exists(VariableDeclarationEntry declEntry, GuardedPtr guardPtr |
