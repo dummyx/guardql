@@ -5,6 +5,7 @@ import semmle.code.cpp.dataflow.new.DataFlow
 import semmle.code.cpp.Macro
 import semmle.code.cpp.exprs.Access
 import semmle.code.cpp.controlflow.ControlFlowGraph
+import semmle.code.cpp.controlflow.Dominance
 
 predicate hasGuard(ValueVariable v) {
   exists(VariableDeclarationEntry decl |
@@ -37,6 +38,22 @@ predicate isGcTrigger1(Function function) {
     s.getEnclosingFunction() = function and
     s.getAChild*() = call and
     (call.getTarget().getName() = "gc_enter" or isGcTrigger1(call.getTarget()))
+  )
+}
+
+predicate mightCreateNewObject(Function function) {
+  isNewObject(function) and
+  (
+    function.getType().getName().matches("%VALUE") or
+    function.getAParameter().getType().getName().matches("%VALUE")
+  )
+}
+
+predicate isNewObject(Function function) {
+  exists(Expr s, Call call |
+    s.getEnclosingFunction() = function and
+    s.getAChild*() = call and
+    (call.getTarget().getName() in ["malloc", "calloc"] or isNewObject(call.getTarget()))
   )
 }
 
@@ -104,59 +121,6 @@ class GcTriggerCallWithFunctionPointer extends Expr {
   }
 }
 
-class InnerPointerTakingFunctionByNameCall extends FunctionCall {
-  InnerPointerTakingFunctionByNameCall() {
-    this.getTarget() instanceof InnerPointerTakingFunctionByName
-  }
-}
-
-class InnerPointerTakingFunctionByName extends Function {
-  InnerPointerTakingFunctionByName() {
-    this.getName() in [
-        "RSTRING_PTR",
-        "RSTRING_END",
-        "RSTRING_GETMEM",
-        "RARRAY_PTR",
-        "RARRAY_CONST_PTR",
-        "RARRAY_PTR_USE",
-        "rb_array_const_ptr",
-        "rb_ary_ptr_use_start",
-        "rb_ary_ptr_use_end",
-        "DATA_PTR",
-        "rb_data_object_get",
-        "Data_Get_Struct",
-        "RTYPEDDATA_DATA",
-        "RTYPEDDATA_GET_DATA",
-        "TypedData_Get_Struct",
-        "rb_check_typeddata",
-        "RREGEXP_PTR",
-        "RREGEXP_SRC_PTR",
-        "RSTRUCT_PTR",
-        "rb_struct_ptr",
-        "ROBJECT_IVPTR",
-        "RFILE",
-        "RB_IO_POINTER",
-        "GetOpenFile",
-        "RMATCH",
-        "RMATCH_EXT",
-        "RMATCH_REGS",
-        "StringValuePtr",
-        "StringValueCStr",
-        "rb_string_value_ptr",
-        "rb_string_value_cstr",
-        "rb_gc_guarded_ptr",
-        "rb_gc_guarded_ptr_val",
-        "FilePathValue",
-        "rb_fd_ptr",
-        "rb_memory_view_get_item_pointer",
-        "rb_ractor_local_storage_ptr",
-        "rb_errno_ptr",
-        "rb_ruby_verbose_ptr",
-        "rb_ruby_debug_ptr"
-      ]
-  }
-}
-
 predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
   exists(GcTriggerCall innerGcTriggerCall, VariableAccess pAccess |
     gcTriggerFunc.getAPredecessor+() = innerGcTriggerCall and
@@ -176,11 +140,10 @@ predicate needsGuard(
   PointerVariableAccess pointerUsageAccess, ControlFlowNode innerPointerTaking
 ) {
   (
-    gtc.getControlFlowScope() = v.getParentScope*().(Function)  and
+    gtc.getControlFlowScope() = v.getParentScope*().(Function) and
     gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
   isTarget(v) and
-  after(v.getAnAccess(), gtc) and
   // residue
   // isInitialVariableAccess(v.getAnAccess(), v) and
   innerPointer != v and
@@ -242,7 +205,7 @@ string getGuardInsertionLineBRLA(ValueVariable v) {
 predicate isTarget(ValueVariable v) {
   v.getEnclosingElement() instanceof TopLevelFunction and
   // v.getIniti and
-  not exists(Parameter p | v = p) and
+  // not exists(Parameter p | v = p) and
   not v.getFile().toString().matches("%.h") and
   not v.getADeclarationEntry().isInMacroExpansion() and
   not v.getFile().toString().matches("%.inc") and

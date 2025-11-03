@@ -8,6 +8,68 @@ class ValueVariable extends Variable {
   ValueVariable() { this.getType().getName() = "VALUE" }
 }
 
+
+class InnerPointerTakingFunctionByNameCall extends FunctionCall {
+  InnerPointerTakingFunctionByNameCall() {
+    this.getTarget() instanceof InnerPointerTakingFunctionByName
+  }
+}
+
+class InnerPointerTakingFunctionByName extends Function {
+  InnerPointerTakingFunctionByName() {
+    this.getName() in [
+        "RSTRING_PTR",
+        "RSTRING_END",
+        "RSTRING_GETMEM",
+        "RARRAY_PTR",
+        "RARRAY_CONST_PTR",
+        "RARRAY_PTR_USE",
+        "rb_array_const_ptr",
+        "rb_ary_ptr_use_start",
+        "rb_ary_ptr_use_end",
+        "DATA_PTR",
+        "rb_data_object_get",
+        "Data_Get_Struct",
+        "RTYPEDDATA_DATA",
+        "RTYPEDDATA_GET_DATA",
+        "TypedData_Get_Struct",
+        "rb_check_typeddata",
+        "RREGEXP_PTR",
+        "RREGEXP_SRC_PTR",
+        "RSTRUCT_PTR",
+        "rb_struct_ptr",
+        "ROBJECT_IVPTR",
+        "RFILE",
+        "RB_IO_POINTER",
+        "GetOpenFile",
+        "RMATCH",
+        "RMATCH_EXT",
+        "RMATCH_REGS",
+        "StringValuePtr",
+        "StringValueCStr",
+        "rb_string_value_ptr",
+        "rb_string_value_cstr",
+        "rb_gc_guarded_ptr",
+        "rb_gc_guarded_ptr_val",
+        "FilePathValue",
+        "rb_fd_ptr",
+        "rb_memory_view_get_item_pointer",
+        "rb_ractor_local_storage_ptr",
+        "rb_errno_ptr",
+        "rb_ruby_verbose_ptr",
+        "rb_ruby_debug_ptr"
+      ]
+  }
+}
+
+
+class PointerDerivationAction extends ControlFlowNode {
+PointerDerivationAction() {
+  this instanceof Assignment or 
+  this instanceof InnerPointerTakingFunctionByNameCall
+}
+}
+
 class ValueVariableMatch extends Variable {
   ValueVariableMatch() { this.getType().getName().matches("%VALUE%") }
 }

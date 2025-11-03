@@ -110,7 +110,8 @@ predicate hasInnerPointerTaken(
 predicate isPointerUsedAfterGcTrigger(
   PointerVariableAccess pointerUsageAccess, GcTriggerCall gcTriggerCall
 ) {
-  not notAfter(gcTriggerCall, pointerUsageAccess)
+  // not notAfter(gcTriggerCall, pointerUsageAccess)
+  gcTriggerCall.getASuccessor+() = pointerUsageAccess
 }
 
 predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCall gcTriggerCall) {
@@ -123,13 +124,11 @@ predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCa
 }
 
 predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
-  /*
-   * exists(VariableAccess va |
-   *    va.getTarget() = v and va = gcTriggerCall.getASuccessor+() and not isGuardAccess(va)
-   *  )
-   */
-
-  notAfter(gcTriggerCall, v.getAnAccess())
+  
+  not exists(VariableAccess va |
+     va.getTarget() = v and va = gcTriggerCall.getASuccessor+() and not isGuardAccess(va)
+   )
+  // notAfter(gcTriggerCall, v.getAnAccess())
 }
 
 predicate notAfter(ControlFlowNode a, ControlFlowNode b) {

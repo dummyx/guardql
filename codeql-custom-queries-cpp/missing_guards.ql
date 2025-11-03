@@ -4,7 +4,7 @@ import lib.patterns
 import lib.types
 
 from ValueVariable v, PointerVariable p, GcTriggerCall gtc,
-     PointerVariableAccess pointerUsageAccess, ControlFlowNode innerPointerTaking
+     PointerVariableAccess pointerUsageAccess, PointerDerivationAction innerPointerTaking
 where
   needsGuard(v, p, gtc, pointerUsageAccess, innerPointerTaking) and not hasGuard(v)
-select v, innerPointerTaking, p, gtc, pointerUsageAccess
+select v, innerPointerTaking, gtc, pointerUsageAccess
