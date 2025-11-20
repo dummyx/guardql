@@ -121,7 +121,7 @@ class GcTriggerCallWithFunctionPointer extends Expr {
   }
 }
 
-predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
+predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i, ValueVariable v) {
   exists(GcTriggerCall innerGcTriggerCall, VariableAccess pAccess |
     gcTriggerFunc.getAPredecessor+() = innerGcTriggerCall and
     pAccess = innerGcTriggerCall.getASuccessor+() and
@@ -131,13 +131,26 @@ predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
   exists(GcTriggerCall recursiveGcTriggerCall, int j |
     recursiveGcTriggerCall = gcTriggerFunc.getAPredecessor+() and
     gcTriggerFunc.getParameter(i).getAnAccess() = recursiveGcTriggerCall.getAnArgumentSubExpr(j) and
-    isArgumentNotSafe(recursiveGcTriggerCall.getTarget(), j)
+    isArgumentNotSafe(recursiveGcTriggerCall.getTarget(), j, v)
   )
 }
 
+
+/*
+predicate pointerPassedNotSafe(GcTriggerCall gtc, ControlFlowNode pAccess, ValueVariable v) {
+  gtc.getAnArgument() = pAccess and (not gtc.getAnArgument().(ValueAccess).getTarget() = v)
+  and
+  exists(GcTriggerCall innerGcTriggerCall, VariableAccess pAccess |
+    gcTriggerFunc.getAPredecessor+() = innerGcTriggerCall and
+    pAccess = innerGcTriggerCall.getASuccessor+() and
+    gcTriggerFunc.getParameter(i).getAnAccess() = pAccess
+  )
+}
+  */
+
 predicate needsGuard(
   ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
-  PointerVariableAccess pointerUsageAccess, ControlFlowNode innerPointerTaking
+  ControlFlowNode pointerAccess, ControlFlowNode innerPointerTaking
 ) {
   (
     gtc.getControlFlowScope() = v.getParentScope*().(Function) and
@@ -147,8 +160,14 @@ predicate needsGuard(
   // residue
   // isInitialVariableAccess(v.getAnAccess(), v) and
   innerPointer != v and
-  pointerUsageAccess.getTarget() = innerPointer and
-  isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
+  pointerAccess.(PointerVariableAccess).getTarget() = innerPointer and
+  (
+    isPointerUsedAfterGcTrigger(pointerAccess, gtc)
+    or
+    exists(GcTriggerCall gtcInter |
+      gtcInter.getAnArgument() = pointerAccess or gtc.getAnArgument() = innerPointerTaking
+    )
+  ) and
   // disable interprocedural pointer usage for now
   // and not exists(ValueAccess va | gtc.getASuccessor*() = va)
   /*

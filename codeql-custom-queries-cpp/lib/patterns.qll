@@ -114,6 +114,8 @@ predicate isPointerUsedAfterGcTrigger(
   gcTriggerCall.getASuccessor+() = pointerUsageAccess
 }
 
+
+/*
 predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCall gcTriggerCall) {
   exists(int i |
     initVAccess = v.getAnAccess() and
@@ -122,6 +124,7 @@ predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCa
     isArgumentNotSafe(gcTriggerCall.getTarget(), i)
   )
 }
+*/
 
 predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
   
