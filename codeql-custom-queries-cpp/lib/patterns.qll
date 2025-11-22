@@ -114,6 +114,30 @@ predicate isPointerUsedAfterGcTrigger(
   gcTriggerCall.getASuccessor+() = pointerUsageAccess
 }
 
+/**
+ * Interprocedural: pointer argument is passed to a callee that performs an
+ * allocation/GC-triggering call using that parameter.
+ */
+predicate pointerPassedToGcAlloc(FunctionCall call, PointerVariableAccess pAccess) {
+  exists(int i |
+    call.getAnArgumentSubExpr(i) = pAccess and
+    calleeParameterUsedInAlloc(call.getTarget(), i)
+  )
+}
+
+predicate calleeParameterUsedInAlloc(Function callee, int idx) {
+  exists(FunctionCall innerCall, VariableAccess paramUse |
+    innerCall.getEnclosingFunction() = callee and
+    isAllocOrGcCall(innerCall) and
+    (
+      innerCall.getAnArgument() = paramUse and
+      paramUse.getTarget() = callee.getParameter(idx)
+      or
+      innerCall.getAnArgument().getAChild*() = callee.getParameter(idx).getAnAccess()
+    )
+  )
+}
+
 
 /*
 predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCall gcTriggerCall) {
