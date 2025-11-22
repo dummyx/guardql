@@ -140,11 +140,14 @@ predicate needsGuard(
     gtc.getControlFlowScope() = v.getParentScope*().(Function) and
     gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
+  // Ensure the pointer is derived before a GC trigger happens
+  after(innerPointerTaking, gtc) and
   isTarget(v) and
   // residue
   // isInitialVariableAccess(v.getAnAccess(), v) and
   innerPointer != v and
   pointerAccess.(PointerVariableAccess).getTarget() = innerPointer and
+  after(innerPointerTaking, pointerAccess) and
   (
     isPointerUsedAfterGcTrigger(pointerAccess, gtc)
     or
