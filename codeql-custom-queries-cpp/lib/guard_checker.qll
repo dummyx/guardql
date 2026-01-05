@@ -20,6 +20,16 @@ predicate hasGuard(ValueVariable v) {
   )
 }
 
+FunctionCall getRFunctionCallToValueVariable(
+  ValueVariable v
+) {
+  exists(FunctionCall fc, Assignment assign |
+    assign.getRValue().getAChild*() = fc and
+    assign.getLValue().getAChild*() = v.getAnAccess() and
+    fc.getTarget().getName() = "rb_funcall" and result = fc
+  )
+}
+
 predicate tripleTransition(ControlFlowNode a, ControlFlowNode b, ControlFlowNode c) {
   a.getASuccessor*() = b and b.getASuccessor*() = c
 }
@@ -47,10 +57,9 @@ predicate isAllocOrGcFunction(Function function) {
 predicate isAllocOrGcCall(FunctionCall call) {
   call.getTarget().getName() in [
       "rb_str_new", "rb_str_buf_new", "rb_str_resize", "rb_str_concat", "rb_str_append",
-      "rb_ary_new", "rb_ary_push", "rb_ary_concat", "rb_ary_store",
-      "rb_hash_new", "rb_hash_aset", "rb_hash_lookup2",
-      "rb_obj_alloc", "rb_class_new_instance", "rb_funcall",
-      "ALLOC", "ALLOC_N", "REALLOC_N"
+      "rb_ary_new", "rb_ary_push", "rb_ary_concat", "rb_ary_store", "rb_hash_new", "rb_hash_aset",
+      "rb_hash_lookup2", "rb_obj_alloc", "rb_class_new_instance", "rb_funcall", "ALLOC", "ALLOC_N",
+      "REALLOC_N"
     ]
   or
   call.getTarget() instanceof GcTriggerFunction
@@ -117,7 +126,7 @@ predicate isGcTriggerWithFunctionPointer(Function function) {
 }
 
 class GcTriggerFunction extends Function {
-  GcTriggerFunction() { isGcTrigger(this) or isAllocOrGcFunction(this) }
+  GcTriggerFunction() { isGcTrigger(this) }
 }
 
 class GcTriggerFunctionWithFunctionPointer extends Function {
@@ -133,29 +142,29 @@ class GcTriggerCall extends FunctionCall {
 }
 
 predicate needsGuard(
-  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
-  ControlFlowNode pointerAccess, ControlFlowNode innerPointerTaking
+  ValueVariable v, GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
+  InnerPointerTakingFunctionByNameCall innerPointerTaking
 ) {
   (
     gtc.getControlFlowScope() = v.getParentScope*().(Function) and
     gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
-  // Ensure the pointer is derived before a GC trigger happens
-  after(innerPointerTaking, gtc) and
   isTarget(v) and
   // residue
   // isInitialVariableAccess(v.getAnAccess(), v) and
-  innerPointer != v and
-  pointerAccess.(PointerVariableAccess).getTarget() = innerPointer and
-  after(innerPointerTaking, pointerAccess) and
   (
-    isPointerUsedAfterGcTrigger(pointerAccess, gtc)
-    or
-    pointerPassedToGcAlloc(gtc, pointerAccess)
-    or
-    exists(GcTriggerCall gtcInter |
-      gtcInter.getAnArgument() = pointerAccess or gtc.getAnArgument() = innerPointerTaking
+    exists(PointerVariable innerPointer |
+      innerPointer != v and
+      pointerUsageAccess.(PointerVariableAccess).getTarget() = innerPointer and
+      hasInnerPointerTaken(v, innerPointer, innerPointerTaking) and
+      isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc)
     )
+    /*or
+    exists(GcTriggerCall callee |
+      callee = gtc.getASuccessor*() and
+      callee.getAnArgument().getAChild*() = innerPointerTaking and
+      innerPointerTaking.getAnArgument().getAChild*() = v.getAnAccess()
+    )*/
   ) and
   // disable interprocedural pointer usage for now
   // and not exists(ValueAccess va | gtc.getASuccessor*() = va)
@@ -164,8 +173,7 @@ predicate needsGuard(
    *      passedToGcTrigger(v, initVAccess.(ValueAccess), gcTriggerCall)
    */
 
-  notAccessedAfterGcTrigger(v, gtc) and
-  hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
+  notAccessedAfterGcTrigger(v, gtc)
 }
 
 predicate isGuardAccess(ValueAccess vAccess) {

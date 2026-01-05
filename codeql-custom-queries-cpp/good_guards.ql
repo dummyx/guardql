@@ -2,8 +2,8 @@ import cpp
 import lib.guard_checker
 import lib.types
 
-from ValueVariable v, PointerVariable p, GcTriggerCall gtc,
-     PointerVariableAccess pointerUsageAccess, PointerDerivationAction innerPointerTaking
-where
-  needsGuard(v, p, gtc, pointerUsageAccess, innerPointerTaking) and hasGuard(v)
-select v
+from
+  ValueVariable v, GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
+  InnerPointerTakingFunctionByNameCall innerPointerTaking
+where needsGuard(v, gtc, pointerUsageAccess, innerPointerTaking) and hasGuard(v)
+select v, innerPointerTaking, gtc, pointerUsageAccess

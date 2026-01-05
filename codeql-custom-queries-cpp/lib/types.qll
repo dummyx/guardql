@@ -8,7 +8,6 @@ class ValueVariable extends Variable {
   ValueVariable() { this.getType().getName() = "VALUE" }
 }
 
-
 class InnerPointerTakingFunctionByNameCall extends FunctionCall {
   InnerPointerTakingFunctionByNameCall() {
     this.getTarget() instanceof InnerPointerTakingFunctionByName
@@ -18,6 +17,8 @@ class InnerPointerTakingFunctionByNameCall extends FunctionCall {
 class InnerPointerTakingFunctionByName extends Function {
   InnerPointerTakingFunctionByName() {
     this.getName() in [
+        "BDIGITS",
+        "BIGNUM_DIGITS",
         "RSTRING_PTR",
         "RSTRING_END",
         "RSTRING_GETMEM",
@@ -62,12 +63,15 @@ class InnerPointerTakingFunctionByName extends Function {
   }
 }
 
-
 class PointerDerivationAction extends ControlFlowNode {
-PointerDerivationAction() {
-  this instanceof Assignment or 
-  this instanceof InnerPointerTakingFunctionByNameCall
+  PointerDerivationAction() {
+    this instanceof Assignment or
+    this instanceof InnerPointerTakingFunctionByNameCall
+  }
 }
+
+class InnerPointerUsage extends ControlFlowNode {
+  InnerPointerUsage() { this instanceof FunctionCall or this instanceof PointerVariableAccess }
 }
 
 class ValueVariableMatch extends Variable {

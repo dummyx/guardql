@@ -4,10 +4,10 @@ import lib.guard_checker
 from ValueVariable v
 where
   exists(
-    PointerVariable p, GcTriggerCall gtc, PointerVariableAccess pointerUsageAccess,
-    PointerDerivationAction innerPointerTaking
+    GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
+    InnerPointerTakingFunctionByNameCall innerPointerTaking
   |
-    needsGuard(v, p, gtc, pointerUsageAccess, innerPointerTaking)
+    needsGuard(v, gtc, pointerUsageAccess, innerPointerTaking)
   ) and
   not hasGuard(v)
 select v
