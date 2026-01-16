@@ -33,29 +33,6 @@ predicate isGcTrigger(Function function) {
   )
 }
 
-/**
- * Functions that call known allocation/GC-triggering routines (e.g., rb_str_new, rb_ary_push).
- * This widens GC trigger detection to cover common Ruby API allocators beyond gc_enter.
- */
-predicate isAllocOrGcFunction(Function function) {
-  exists(FunctionCall call |
-    call.getEnclosingFunction() = function and
-    isAllocOrGcCall(call)
-  )
-}
-
-predicate isAllocOrGcCall(FunctionCall call) {
-  call.getTarget().getName() in [
-      "rb_str_new", "rb_str_buf_new", "rb_str_resize", "rb_str_concat", "rb_str_append",
-      "rb_ary_new", "rb_ary_push", "rb_ary_concat", "rb_ary_store",
-      "rb_hash_new", "rb_hash_aset", "rb_hash_lookup2",
-      "rb_obj_alloc", "rb_class_new_instance", "rb_funcall",
-      "ALLOC", "ALLOC_N", "REALLOC_N"
-    ]
-  or
-  call.getTarget() instanceof GcTriggerFunction
-}
-
 predicate isGcTrigger1(Function function) {
   exists(Expr s, Call call |
     s.getEnclosingFunction() = function and
@@ -117,7 +94,7 @@ predicate isGcTriggerWithFunctionPointer(Function function) {
 }
 
 class GcTriggerFunction extends Function {
-  GcTriggerFunction() { isGcTrigger(this) or isAllocOrGcFunction(this) }
+  GcTriggerFunction() { isGcTrigger(this) }
 }
 
 class GcTriggerFunctionWithFunctionPointer extends Function {
@@ -132,31 +109,46 @@ class GcTriggerCall extends FunctionCall {
   }
 }
 
+class GcTriggerCallWithFunctionPointer extends Expr {
+  GcTriggerCallWithFunctionPointer() {
+    if this instanceof FunctionCall
+    then this.(FunctionCall).getTarget() instanceof GcTriggerFunctionWithFunctionPointer
+    else (
+      if this instanceof VariableAccess
+      then this.(VariableAccess).getTarget().getType() instanceof FunctionPointerType
+      else none()
+    )
+  }
+}
+
+predicate isArgumentNotSafe(GcTriggerFunction gcTriggerFunc, int i) {
+  exists(GcTriggerCall innerGcTriggerCall, VariableAccess pAccess |
+    gcTriggerFunc.getAPredecessor+() = innerGcTriggerCall and
+    pAccess = innerGcTriggerCall.getASuccessor+() and
+    gcTriggerFunc.getParameter(i).getAnAccess() = pAccess
+  )
+  or
+  exists(GcTriggerCall recursiveGcTriggerCall, int j |
+    recursiveGcTriggerCall = gcTriggerFunc.getAPredecessor+() and
+    gcTriggerFunc.getParameter(i).getAnAccess() = recursiveGcTriggerCall.getAnArgumentSubExpr(j) and
+    isArgumentNotSafe(recursiveGcTriggerCall.getTarget(), j)
+  )
+}
+
 predicate needsGuard(
-  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
-  ControlFlowNode pointerAccess, ControlFlowNode innerPointerTaking
+  ValueVariable v, PointerVariable subordinatePointer, GcTriggerCall gtc,
+  PointerVariableAccess pointerUsageAccess, ControlFlowNode derivationSite
 ) {
   (
     gtc.getControlFlowScope() = v.getParentScope*().(Function) and
-    gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
+    gtc.getControlFlowScope() = derivationSite.getControlFlowScope()
   ) and
-  // Ensure the pointer is derived before a GC trigger happens
-  after(innerPointerTaking, gtc) and
   isTarget(v) and
   // residue
   // isInitialVariableAccess(v.getAnAccess(), v) and
-  innerPointer != v and
-  pointerAccess.(PointerVariableAccess).getTarget() = innerPointer and
-  after(innerPointerTaking, pointerAccess) and
-  (
-    isPointerUsedAfterGcTrigger(pointerAccess, gtc)
-    or
-    pointerPassedToGcAlloc(gtc, pointerAccess)
-    or
-    exists(GcTriggerCall gtcInter |
-      gtcInter.getAnArgument() = pointerAccess or gtc.getAnArgument() = innerPointerTaking
-    )
-  ) and
+  subordinatePointer != v and
+  pointerUsageAccess.getTarget() = subordinatePointer and
+  isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
   // disable interprocedural pointer usage for now
   // and not exists(ValueAccess va | gtc.getASuccessor*() = va)
   /*
@@ -165,7 +157,7 @@ predicate needsGuard(
    */
 
   notAccessedAfterGcTrigger(v, gtc) and
-  hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
+  hasSubordinatePointerDerivation(v, subordinatePointer, derivationSite)
 }
 
 predicate isGuardAccess(ValueAccess vAccess) {
@@ -201,6 +193,13 @@ string getGuardInsertionLineBR(ValueVariable v) {
     )
   then any()
   else result = v.getParentScope().getLocation().getEndLine().toString()
+}
+
+string getGuardInsertionLineBRLA(ValueVariable v) {
+  exists(ValueAccess lva |
+    not exists(ValueAccess va | va = lva.getASuccessor+()) and
+    result = lva.getLocation().getEndLine().toString()
+  )
 }
 
 predicate isTarget(ValueVariable v) {

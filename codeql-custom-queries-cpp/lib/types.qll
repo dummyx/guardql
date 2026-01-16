@@ -9,14 +9,14 @@ class ValueVariable extends Variable {
 }
 
 
-class InnerPointerTakingFunctionByNameCall extends FunctionCall {
-  InnerPointerTakingFunctionByNameCall() {
-    this.getTarget() instanceof InnerPointerTakingFunctionByName
+class SubordinatePointerDerivationFunctionByNameCall extends FunctionCall {
+  SubordinatePointerDerivationFunctionByNameCall() {
+    this.getTarget() instanceof SubordinatePointerDerivationFunctionByName
   }
 }
 
-class InnerPointerTakingFunctionByName extends Function {
-  InnerPointerTakingFunctionByName() {
+class SubordinatePointerDerivationFunctionByName extends Function {
+  SubordinatePointerDerivationFunctionByName() {
     this.getName() in [
         "RSTRING_PTR",
         "RSTRING_END",
@@ -64,10 +64,10 @@ class InnerPointerTakingFunctionByName extends Function {
 
 
 class PointerDerivationAction extends ControlFlowNode {
-PointerDerivationAction() {
-  this instanceof Assignment or 
-  this instanceof InnerPointerTakingFunctionByNameCall
-}
+  PointerDerivationAction() {
+    this instanceof Assignment or
+    this instanceof SubordinatePointerDerivationFunctionByNameCall
+  }
 }
 
 class ValueVariableMatch extends Variable {
@@ -93,8 +93,8 @@ class PointerVariableAccess extends VariableAccess {
   PointerVariableAccess() { this.getTarget() instanceof PointerVariable }
 }
 
-class InnerPointerTakingFunctionByType extends Function {
-  InnerPointerTakingFunctionByType() {
+class SubordinatePointerDerivationFunctionByType extends Function {
+  SubordinatePointerDerivationFunctionByType() {
     this.getAParameter().getType().getName() = "VALUE" and
     (
       this.getType() instanceof PointerType or
@@ -103,9 +103,9 @@ class InnerPointerTakingFunctionByType extends Function {
   }
 }
 
-class InnerPointerTakingFunctionCallByType extends FunctionCall {
-  InnerPointerTakingFunctionCallByType() {
-    this.getTarget() instanceof InnerPointerTakingFunctionByType
+class SubordinatePointerDerivationFunctionCallByType extends FunctionCall {
+  SubordinatePointerDerivationFunctionCallByType() {
+    this.getTarget() instanceof SubordinatePointerDerivationFunctionByType
   }
 }
 
@@ -113,8 +113,8 @@ class GuardMacroInvocation extends MacroInvocation {
   GuardMacroInvocation() { this.getMacroName() = "RB_GC_GUARD" }
 }
 
-class InnerPointerTakingFunctionCall extends FunctionCall {
-  InnerPointerTakingFunctionCall() {
+class SubordinatePointerDerivationFunctionCall extends FunctionCall {
+  SubordinatePointerDerivationFunctionCall() {
     this.getAnArgument().getType().getName().matches("%VALUE %_") or
     this.getTarget().getType().getName().matches("%VALUE %")
   }

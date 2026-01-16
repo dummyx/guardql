@@ -17,90 +17,90 @@ predicate isInitialVariableAccess(ControlFlowNode node, ValueVariable v) {
 }
 
 /**
- * Checks if there's an assignment where the RValue involves an InnerPointerTakingFunctionByNameCall
+ * Checks if there's an assignment where the RValue involves a SubordinatePointerDerivationFunctionByNameCall
  * that takes the given ValueVariable as an argument, and assigns to the given PointerVariable.
  * ```
  * VALUE a;
  * ptr* b;
- * b = inner_pointer_taking_function(a);
+ * b = subordinate_pointer_derivation_function(a);
  * ```
  */
-predicate hasInnerPointerAssignment(
-  ValueVariable v, PointerVariable innerPointer, ControlFlowNode innerPointerTaking
+predicate hasSubordinatePointerAssignment(
+  ValueVariable v, PointerVariable subordinatePointer, ControlFlowNode derivationSite
 ) {
   exists(Assignment assignment |
-    assignment.getLValue().getAChild*().(VariableAccess).getTarget() = innerPointer and
-    assignment.getRValue().getAChild*() instanceof InnerPointerTakingFunctionByNameCall and
+    assignment.getLValue().getAChild*().(VariableAccess).getTarget() = subordinatePointer and
+    assignment.getRValue().getAChild*() instanceof SubordinatePointerDerivationFunctionByNameCall and
     assignment
         .getRValue()
         .getAChild*()
-        .(InnerPointerTakingFunctionByNameCall)
+        .(SubordinatePointerDerivationFunctionByNameCall)
         .getAnArgument()
         .(ValueAccess)
         .getTarget() = v and
-    assignment = innerPointerTaking
+    assignment = derivationSite
   )
 }
 
 /**
- * Checks if there's a declaration of a PointerVariable initialized with an InnerPointerTakingFunctionByNameCall
+ * Checks if there's a declaration of a PointerVariable initialized with a SubordinatePointerDerivationFunctionByNameCall
  * that takes the given ValueVariable as an argument.
  *
  * ```
  * VALUE a;
- * ptr* b = inner_pointer_taking_function(a);
+ * ptr* b = subordinate_pointer_derivation_function(a);
  * ```
  */
-predicate hasInnerPointerDeclaration(
-  ValueVariable v, PointerVariable innerPointer, ControlFlowNode innerPointerTaking
+predicate hasSubordinatePointerDeclaration(
+  ValueVariable v, PointerVariable subordinatePointer, ControlFlowNode derivationSite
 ) {
   exists(
     Declaration decl, VariableDeclarationEntry declEntry,
-    InnerPointerTakingFunctionByNameCall pointerTakingCall
+    SubordinatePointerDerivationFunctionByNameCall pointerDerivationCall
   |
     decl.getADeclarationEntry() = declEntry and
-    declEntry.getVariable() = innerPointer and
-    innerPointer.getInitializer().getExpr() = pointerTakingCall and
-    pointerTakingCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v and
-    pointerTakingCall = innerPointerTaking
+    declEntry.getVariable() = subordinatePointer and
+    subordinatePointer.getInitializer().getExpr() = pointerDerivationCall and
+    pointerDerivationCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v and
+    pointerDerivationCall = derivationSite
   )
 }
 
 /**
- * Checks if there's an InnerPointerTakingFunctionByNameCall that takes both the ValueVariable
+ * Checks if there's a SubordinatePointerDerivationFunctionByNameCall that takes both the ValueVariable
  * and the PointerVariable as arguments (directly or through field access).
  * ```
  * VALUE a;
  * ptr* b;
- * inner_pointer_taking_function(a, b);
+ * subordinate_pointer_derivation_function(a, b);
  * ```
  */
-predicate hasInnerPointerFunctionCall(
-  ValueVariable v, PointerVariable innerPointer, ControlFlowNode innerPointerTaking
+predicate hasSubordinatePointerFunctionCall(
+  ValueVariable v, PointerVariable subordinatePointer, ControlFlowNode derivationSite
 ) {
-  exists(InnerPointerTakingFunctionByNameCall pointerTakingCall |
+  exists(SubordinatePointerDerivationFunctionByNameCall pointerDerivationCall |
     (
-      pointerTakingCall = innerPointerTaking and
-      pointerTakingCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
+      pointerDerivationCall = derivationSite and
+      pointerDerivationCall.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
       or
-      pointerTakingCall.getAnArgument().getAChild*().(FieldAccess).getQualifier() = v.getAnAccess()
+      pointerDerivationCall.getAnArgument().getAChild*().(FieldAccess).getQualifier() = v.getAnAccess()
     ) and
-    pointerTakingCall.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() =
-      innerPointer
+    pointerDerivationCall.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() =
+      subordinatePointer
   )
 }
 
 /**
- * Checks if any of the inner pointer patterns exist for the given variables.
+ * Checks if any of the subordinate pointer derivation patterns exist for the given variables.
  */
-predicate hasInnerPointerTaken(
-  ValueVariable v, PointerVariable innerPointer, ControlFlowNode innerPointerTaking
+predicate hasSubordinatePointerDerivation(
+  ValueVariable v, PointerVariable subordinatePointer, ControlFlowNode derivationSite
 ) {
-  hasInnerPointerAssignment(v, innerPointer, innerPointerTaking)
+  hasSubordinatePointerAssignment(v, subordinatePointer, derivationSite)
   or
-  hasInnerPointerDeclaration(v, innerPointer, innerPointerTaking)
+  hasSubordinatePointerDeclaration(v, subordinatePointer, derivationSite)
   or
-  hasInnerPointerFunctionCall(v, innerPointer, innerPointerTaking)
+  hasSubordinatePointerFunctionCall(v, subordinatePointer, derivationSite)
 }
 
 /**
@@ -114,32 +114,6 @@ predicate isPointerUsedAfterGcTrigger(
   gcTriggerCall.getASuccessor+() = pointerUsageAccess
 }
 
-/**
- * Interprocedural: pointer argument is passed to a callee that performs an
- * allocation/GC-triggering call using that parameter.
- */
-predicate pointerPassedToGcAlloc(FunctionCall call, PointerVariableAccess pAccess) {
-  exists(int i |
-    call.getAnArgumentSubExpr(i) = pAccess and
-    calleeParameterUsedInAlloc(call.getTarget(), i)
-  )
-}
-
-predicate calleeParameterUsedInAlloc(Function callee, int idx) {
-  exists(FunctionCall innerCall, VariableAccess paramUse |
-    innerCall.getEnclosingFunction() = callee and
-    isAllocOrGcCall(innerCall) and
-    (
-      innerCall.getAnArgument() = paramUse and
-      paramUse.getTarget() = callee.getParameter(idx)
-      or
-      innerCall.getAnArgument().getAChild*() = callee.getParameter(idx).getAnAccess()
-    )
-  )
-}
-
-
-/*
 predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCall gcTriggerCall) {
   exists(int i |
     initVAccess = v.getAnAccess() and
@@ -148,7 +122,6 @@ predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCa
     isArgumentNotSafe(gcTriggerCall.getTarget(), i)
   )
 }
-*/
 
 predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
   
