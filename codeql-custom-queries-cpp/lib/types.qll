@@ -58,24 +58,17 @@ class InnerPointerTakingFunctionByName extends Function {
         "rb_ractor_local_storage_ptr",
         "rb_errno_ptr",
         "rb_ruby_verbose_ptr",
-        "rb_ruby_debug_ptr"
+        "rb_ruby_debug_ptr",
+        "TypedData_Make_Struct",
+        "TypedData_Wrap_Struct",
+        "Data_Make_Struct",
+        "Data_Wrap_Struct"
       ]
-  }
-}
-
-class PointerDerivationAction extends ControlFlowNode {
-  PointerDerivationAction() {
-    this instanceof Assignment or
-    this instanceof InnerPointerTakingFunctionByNameCall
   }
 }
 
 class InnerPointerUsage extends ControlFlowNode {
   InnerPointerUsage() { this instanceof FunctionCall or this instanceof PointerVariableAccess }
-}
-
-class ValueVariableMatch extends Variable {
-  ValueVariableMatch() { this.getType().getName().matches("%VALUE%") }
 }
 
 class ValueAccess extends VariableAccess {
@@ -89,39 +82,8 @@ class PointerVariable extends Variable {
   }
 }
 
-class FunctionPointerAccess extends VariableAccess {
-  FunctionPointerAccess() { this.getTarget().getType() instanceof FunctionPointerType }
-}
-
 class PointerVariableAccess extends VariableAccess {
   PointerVariableAccess() { this.getTarget() instanceof PointerVariable }
-}
-
-class InnerPointerTakingFunctionByType extends Function {
-  InnerPointerTakingFunctionByType() {
-    this.getAParameter().getType().getName() = "VALUE" and
-    (
-      this.getType() instanceof PointerType or
-      this.getAParameter().getType() instanceof PointerType
-    )
-  }
-}
-
-class InnerPointerTakingFunctionCallByType extends FunctionCall {
-  InnerPointerTakingFunctionCallByType() {
-    this.getTarget() instanceof InnerPointerTakingFunctionByType
-  }
-}
-
-class GuardMacroInvocation extends MacroInvocation {
-  GuardMacroInvocation() { this.getMacroName() = "RB_GC_GUARD" }
-}
-
-class InnerPointerTakingFunctionCall extends FunctionCall {
-  InnerPointerTakingFunctionCall() {
-    this.getAnArgument().getType().getName().matches("%VALUE %_") or
-    this.getTarget().getType().getName().matches("%VALUE %")
-  }
 }
 
 class GuardedPtr extends Variable {
@@ -129,8 +91,4 @@ class GuardedPtr extends Variable {
     this.getType().getName() = "volatile VALUE *" and
     this.getName() = "rb_gc_guarded_ptr"
   }
-}
-
-class ValuePtrVariable extends Variable {
-  ValuePtrVariable() { this.getType().getName() = "VALUE *" }
 }
