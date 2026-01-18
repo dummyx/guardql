@@ -4,6 +4,6 @@ import lib.types
 
 from
   ValueVariable v, GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 where needsGuard(v, gtc, pointerUsageAccess, innerPointerTaking) and hasGuard(v)
 select v

@@ -34,5 +34,11 @@ static inline long RARRAY_LEN(VALUE v) { (void)v; return 1; }
 static inline VALUE rb_ary_entry(VALUE ary, long idx) { (void)ary; (void)idx; return 4; }
 static inline int RB_TYPE_P(VALUE v, int type) { (void)v; (void)type; return 1; }
 static inline const char *rb_id2name(VALUE id) { (void)id; return "id"; }
+static inline int rb_scan_args(int argc, const VALUE *argv, const char *fmt, ...) {
+  (void)argc;
+  (void)argv;
+  (void)fmt;
+  return 0;
+}
 
 #endif /* RUBY_STUBS_H */

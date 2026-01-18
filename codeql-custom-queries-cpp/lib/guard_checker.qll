@@ -21,11 +21,14 @@ predicate hasGuard(ValueVariable v) {
 }
 
 predicate isGcTrigger(Function function) {
-  exists(Expr s, Call call |
-    s = function.getAPredecessor*() and
-    s instanceof FunctionCall and
-    s.getAChild*() = call and
-    (call.getTarget().getName() = "gc_enter" or isGcTrigger(call.getTarget()))
+  exists(FunctionCall call |
+    call.getEnclosingFunction() = function and
+    (
+      call.getTarget().getName() = "gc_enter" or
+      isAllocOrGcCall(call) or
+      isNoGvlFunction(call.getTarget()) or
+      isGcTrigger(call.getTarget())
+    )
   )
 }
 
@@ -33,13 +36,13 @@ predicate isAllocOrGcCall(FunctionCall call) {
   call.getTarget().getName() in [
       "rb_str_new", "rb_str_buf_new", "rb_str_resize", "rb_str_concat", "rb_str_append",
       "rb_ary_new", "rb_ary_push", "rb_ary_concat", "rb_ary_store", "rb_hash_new", "rb_hash_aset",
-      "rb_hash_lookup2", "rb_obj_alloc", "rb_class_new_instance", "rb_funcall", "ALLOC", "ALLOC_N",
-      "REALLOC_N"
+      "rb_hash_lookup2", "rb_obj_alloc", "rb_class_new_instance", "rb_imemo_new", "ALLOC",
+      "ALLOC_N", "REALLOC_N"
     ]
   or
-  call.getTarget() instanceof GcTriggerFunction
-  or
   call.getTarget() instanceof ObjectGeneratingFunction
+  or
+  isRubyCallbackTrigger(call.getTarget())
 }
 
 predicate isMemoryAllocCall(Call call) {
@@ -79,9 +82,44 @@ predicate isNoGvlFunction(Function function) {
 
 predicate isRubyCallbackTrigger(Function function) {
   function.getName() in [
-      "rb_protect", "rb_rescue", "rb_rescue2", "rb_ensure", "rb_yield",
-      "rb_block_call", "rb_iterate", "rb_eval_string", "rb_eval_string_protect"
+      "rb_protect", "rb_rescue", "rb_rescue2", "rb_ensure", "rb_block_call", "rb_iterate",
+      "rb_eval_string", "rb_eval_string_protect"
+    ] or
+  function.getName().matches("rb_funcall.*") or
+  function.getName().matches("rb_yield.*")
+}
+
+predicate isNoreturnFunction(Function function) {
+  function.getAnAttribute().hasName("noreturn")
+  or
+  function.getName() in [
+      "rb_raise", "rb_raise_jump",
+      "rb_sys_fail", "rb_sys_fail_path",
+      "rb_syserr_fail", "rb_syserr_fail_path", "rb_syserr_fail_str",
+      "rb_exc_raise", "rb_exc_fatal",
+      "rb_fatal", "rb_bug", "rb_bug_errno",
+      "rb_memerror", "rb_notimplement",
+      "rb_jump_tag", "rb_throw", "rb_throw_obj"
     ]
+}
+
+predicate isPointerEscapeFunction(Function function, int idx) {
+  function.getName() in ["pm_string_constant_init", "pm_string_shared_init", "pm_string_owned_init"] and
+  idx = 1
+  or
+  exists(FunctionCall call, int innerIdx |
+    call.getEnclosingFunction() = function and
+    isPointerEscapeFunction(call.getTarget(), innerIdx) and
+    call.getAnArgumentSubExpr(innerIdx).getAChild*().(VariableAccess).getTarget() =
+      function.getParameter(idx)
+  )
+}
+
+predicate isNoreturnAccess(ValueAccess vAccess) {
+  exists(FunctionCall fc |
+    fc.getAnArgument().getAChild*() = vAccess and
+    isNoreturnFunction(fc.getTarget())
+  )
 }
 
 predicate isExprCallToGcTrigger(ExprCall call) {
@@ -101,6 +139,7 @@ class GcTriggerCall extends Call {
     (
       this instanceof FunctionCall and
       (
+        isAllocOrGcCall(this.(FunctionCall)) or
         this.(FunctionCall).getTarget() instanceof GcTriggerFunction or
         this.(FunctionCall).getTarget() instanceof ObjectGeneratingFunction or
         isNoGvlFunction(this.(FunctionCall).getTarget()) or
@@ -156,25 +195,21 @@ predicate isScanArgsDerivedValue(ValueAccess va) {
   )
 }
 
-predicate scanArgsSafeAt(ValueVariable v, InnerPointerTakingFunctionByNameCall innerPointerTaking) {
-  exists(ValueAccess baseAccess |
+predicate scanArgsSafeAt(ValueVariable v, InnerPointerTakingExpr innerPointerTaking) {
+  exists(InnerPointerTakingFunctionByNameCall fc, ValueAccess baseAccess |
+    fc = innerPointerTaking and
     baseAccess.getTarget() = v and
-    innerPointerTaking.getAnArgument().getAChild*() = baseAccess and
+    fc.getAnArgument().getAChild*() = baseAccess and
     isScanArgsDerivedValue(baseAccess)
   )
 }
 
 predicate notAccessedAfterCall(ValueVariable v, Call call) {
   not exists(VariableAccess va |
-    va.getTarget() = v and va = call.getASuccessor+() and not isGuardAccess(va)
-  )
-}
-
-predicate notAccessedAfterCallLocation(ValueVariable v, Call call) {
-  not exists(VariableAccess va |
     va.getTarget() = v and
-    va.getLocation().getStartLine() > call.getLocation().getEndLine() and
-    not isGuardAccess(va)
+    va = call.getASuccessor+() and
+    not isGuardAccess(va) and
+    not isNoreturnAccess(va)
   )
 }
 
@@ -186,40 +221,100 @@ predicate calleeParamUsedAfterGcTrigger(
   gtc.getASuccessor+() = paramUse
 }
 
+predicate macroArgNameEquals(InnerPointerTakingMacroInvocation mi, int idx, string name) {
+  mi.getUnexpandedArgument(idx).regexpCapture(".*?([A-Za-z_][A-Za-z0-9_]*)", 1) = name
+}
+
+predicate typedDataMacroOutParamIndex(InnerPointerTakingMacroInvocation mi, int idx) {
+  mi.getMacroName() = "TypedData_Make_Struct" and idx = 3
+  or
+  mi.getMacroName() = "TypedData_Wrap_Struct" and idx = 2
+  or
+  mi.getMacroName() = "Data_Make_Struct" and idx = 4
+  or
+  mi.getMacroName() = "Data_Wrap_Struct" and idx = 3
+}
+
 predicate hasTypedDataOutParamPointer(
   ValueVariable v, PointerVariable innerPointer,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
-  innerPointerTaking.getTarget().getName() in [
-      "TypedData_Make_Struct", "TypedData_Wrap_Struct",
-      "Data_Make_Struct", "Data_Wrap_Struct"
-    ] and
-  innerPointerTaking.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() = innerPointer and
-  (
-    exists(Assignment assign |
-      assign.getRValue().getAChild*() = innerPointerTaking and
-      assign.getLValue().getAChild*().(ValueAccess).getTarget() = v
+  exists(InnerPointerTakingFunctionByNameCall fc |
+    fc = innerPointerTaking and
+    fc.getTarget().getName() in [
+        "TypedData_Make_Struct", "TypedData_Wrap_Struct",
+        "Data_Make_Struct", "Data_Wrap_Struct",
+        "rb_data_typed_object_make", "rb_data_typed_object_zalloc", "rb_data_typed_object_wrap",
+        "rb_data_object_make", "rb_data_object_zalloc", "rb_data_object_wrap"
+      ] and
+    fc.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() = innerPointer and
+    (
+      exists(Assignment assign |
+        assign.getRValue().getAChild*() = innerPointerTaking and
+        assign.getLValue().getAChild*().(ValueAccess).getTarget() = v
+      )
+      or
+      exists(VariableDeclarationEntry decl |
+        decl.getVariable() = v and
+        decl.getVariable().getInitializer().getExpr() = innerPointerTaking
+      )
     )
-    or
-    exists(VariableDeclarationEntry decl |
-      decl.getVariable() = v and
-      decl.getVariable().getInitializer().getExpr() = innerPointerTaking
+  )
+  or
+  exists(InnerPointerTakingMacroInvocation mi, int idx |
+    innerPointerTaking = mi.getExpr() and
+    typedDataMacroOutParamIndex(mi, idx) and
+    macroArgNameEquals(mi, idx, innerPointer.getName()) and
+    (
+      exists(Assignment assign |
+        assign.getRValue().getAChild*() = innerPointerTaking and
+        assign.getLValue().getAChild*().(ValueAccess).getTarget() = v
+      )
+      or
+      exists(VariableDeclarationEntry decl |
+        decl.getVariable() = v and
+        decl.getVariable().getInitializer().getExpr() = innerPointerTaking
+      )
     )
   )
 }
 
-predicate hasDerivedPointer(
+predicate hasDerivedPointerDirect(
   ValueVariable v, PointerVariable innerPointer,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
   hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
   or
   hasTypedDataOutParamPointer(v, innerPointer, innerPointerTaking)
 }
 
+predicate pointerAliasedFrom(PointerVariable source, PointerVariable alias) {
+  exists(Assignment assign |
+    assign.getLValue().getAChild*().(VariableAccess).getTarget() = alias and
+    assign.getRValue().getAChild*().(PointerVariableAccess).getTarget() = source
+  )
+  or
+  exists(VariableDeclarationEntry decl |
+    decl.getVariable() = alias and
+    decl.getVariable().getInitializer().getExpr().getAChild*().(PointerVariableAccess).getTarget() = source
+  )
+}
+
+predicate hasDerivedPointer(
+  ValueVariable v, PointerVariable innerPointer,
+  InnerPointerTakingExpr innerPointerTaking
+) {
+  hasDerivedPointerDirect(v, innerPointer, innerPointerTaking)
+  or
+  exists(PointerVariable source |
+    hasDerivedPointerDirect(v, source, innerPointerTaking) and
+    pointerAliasedFrom(source, innerPointer)
+  )
+}
+
 predicate interproceduralPointerUseAfterGc(
   ValueVariable v, GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
   exists(FunctionCall call, Function callee, int idx, PointerVariableAccess paramUse |
     call.getEnclosingFunction() = innerPointerTaking.getEnclosingFunction() and
@@ -228,7 +323,7 @@ predicate interproceduralPointerUseAfterGc(
       // Directly pass the inner-pointer expression as an argument.
       (
         call.getAnArgumentSubExpr(idx).getAChild*() = innerPointerTaking and
-        innerPointerTaking.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
+        innerPointerTakingUsesValue(innerPointerTaking, v)
       )
       or
       // Pass a derived pointer variable as an argument.
@@ -246,17 +341,34 @@ predicate interproceduralPointerUseAfterGc(
 
 predicate intraProceduralPointerUseAfterGc(
   ValueVariable v, GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
   (
     gtc.getControlFlowScope() = v.getParentScope*().(Function) and
     gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
-  exists(PointerVariable innerPointer |
-    innerPointer != v and
-    pointerUsageAccess.(PointerVariableAccess).getTarget() = innerPointer and
-    hasDerivedPointer(v, innerPointer, innerPointerTaking) and
-    isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc)
+  (
+    exists(PointerVariable innerPointer |
+      innerPointer != v and
+      pointerUsageAccess.(PointerVariableAccess).getTarget() = innerPointer and
+      hasDerivedPointer(v, innerPointer, innerPointerTaking) and
+      isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc)
+    )
+    or
+    (
+      pointerUsageAccess = innerPointerTaking and
+      innerPointerTakingUsesValue(innerPointerTaking, v) and
+      isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc)
+    )
+    or
+    (
+      exists(FunctionCall call |
+        pointerUsageAccess = call and
+        call.getAnArgument().getAChild*() = innerPointerTaking and
+        innerPointerTakingUsesValue(innerPointerTaking, v) and
+        isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc)
+      )
+    )
   ) and
   notAccessedAfterGcTrigger(v, gtc)
 }
@@ -273,11 +385,11 @@ predicate pointerStoredInStructPassedToCall(PointerVariable innerPointer, Call c
 }
 
 predicate inlinePointerStoredInStructPassedToCall(
-  ValueVariable v, InnerPointerTakingFunctionByNameCall innerPointerTaking, Call call
+  ValueVariable v, InnerPointerTakingExpr innerPointerTaking, Call call
 ) {
   exists(Variable structVar, FieldAccess fa, Assignment assign, AddressOfExpr addr |
     assign.getRValue().getAChild*() = innerPointerTaking and
-    innerPointerTaking.getAnArgument().getAChild*().(ValueAccess).getTarget() = v and
+    innerPointerTakingUsesValue(innerPointerTaking, v) and
     assign.getLValue().getAChild*() = fa and
     fa.getQualifier().getAChild*().(VariableAccess).getTarget() = structVar and
     call.getAnArgument().getAChild*() = addr and
@@ -288,12 +400,16 @@ predicate inlinePointerStoredInStructPassedToCall(
 
 predicate pointerPassedToGcTriggerCall(
   ValueVariable v, GcTriggerCall gtc,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
-  innerPointerTaking.getASuccessor*() = gtc and
+  (
+    innerPointerTaking.getASuccessor*() = gtc
+    or
+    gtc.getAnArgument().getAChild*() = innerPointerTaking
+  ) and
   (
     gtc.getAnArgument().getAChild*() = innerPointerTaking and
-    innerPointerTaking.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
+    innerPointerTakingUsesValue(innerPointerTaking, v)
     or
     inlinePointerStoredInStructPassedToCall(v, innerPointerTaking, gtc)
     or
@@ -308,9 +424,31 @@ predicate pointerPassedToGcTriggerCall(
   )
 }
 
+predicate pointerEscapesToCall(
+  ValueVariable v, FunctionCall escapeCall,
+  InnerPointerTakingExpr innerPointerTaking
+) {
+  exists(int idx |
+    isPointerEscapeFunction(escapeCall.getTarget(), idx) and
+    (
+      escapeCall.getAnArgumentSubExpr(idx).getAChild*() = innerPointerTaking and
+      innerPointerTakingUsesValue(innerPointerTaking, v)
+      or
+      exists(PointerVariable innerPointer |
+        hasDerivedPointer(v, innerPointer, innerPointerTaking) and
+        innerPointerTaking.getASuccessor*() = escapeCall and
+        escapeCall.getAnArgumentSubExpr(idx)
+            .getAChild*()
+            .(PointerVariableAccess)
+            .getTarget() = innerPointer
+      )
+    )
+  )
+}
+
 predicate needsGuard(
   ValueVariable v, GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
   innerPointerTaking.getEnclosingFunction() = v.getParentScope*().(Function) and
   isTarget(v) and
@@ -322,8 +460,14 @@ predicate needsGuard(
     or
     (
       pointerPassedToGcTriggerCall(v, gtc, innerPointerTaking) and
-      notAccessedAfterCallLocation(v, gtc) and
       pointerUsageAccess = innerPointerTaking
+    )
+    or
+    exists(FunctionCall escapeCall |
+      pointerEscapesToCall(v, escapeCall, innerPointerTaking) and
+      gtc.getEnclosingFunction() = escapeCall.getEnclosingFunction() and
+      escapeCall.getASuccessor*() = gtc and
+      pointerUsageAccess = escapeCall
     )
   )
 }

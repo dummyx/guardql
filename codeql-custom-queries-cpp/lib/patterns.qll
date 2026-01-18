@@ -17,12 +17,57 @@ import semmle.code.cpp.controlflow.ControlFlowGraph
  */
 predicate hasInnerPointerAssignment(
   ValueVariable v, PointerVariable innerPointer,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
   exists(Assignment assignment |
     assignment.getLValue().getAChild*().(VariableAccess).getTarget() = innerPointer and
     assignment.getRValue().getAChild*() = innerPointerTaking and
-    innerPointerTaking.getAnArgument().(ValueAccess).getTarget() = v
+    innerPointerTakingUsesValue(innerPointerTaking, v)
+  )
+}
+
+/**
+ * Checks if there's a declaration of a PointerVariable initialized with an InnerPointerTakingExpr
+ * that uses the given ValueVariable as an argument.
+ *
+ * ```
+ * VALUE a;
+ * const VALUE *b = RARRAY_CONST_PTR(a);
+ * ```
+ */
+predicate hasInnerPointerDeclaration(
+  ValueVariable v, PointerVariable innerPointer,
+  InnerPointerTakingExpr innerPointerTaking
+) {
+  exists(VariableDeclarationEntry declEntry |
+    declEntry.getVariable() = innerPointer and
+    innerPointer.getInitializer().getExpr() = innerPointerTaking and
+    innerPointerTakingUsesValue(innerPointerTaking, v)
+  )
+}
+
+predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVariable v) {
+  exists(int idx |
+    mi.getUnexpandedArgument(idx).regexpMatch(".*\\b" + v.getName() + "\\b.*")
+  )
+}
+
+predicate innerPointerTakingUsesValue(InnerPointerTakingExpr innerPointerTaking, ValueVariable v) {
+  exists(InnerPointerTakingFunctionByNameCall fc |
+    fc = innerPointerTaking and
+    fc.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
+  )
+  or
+  exists(InnerPointerTakingMacroInvocation mi |
+    innerPointerTaking = mi.getExpr() and
+    (
+      exists(ValueAccess va |
+        mi.getAnExpandedElement() = va and
+        va.getTarget() = v
+      )
+      or
+      macroInvocationUsesValue(mi, v)
+    )
   )
 }
 
@@ -37,14 +82,17 @@ predicate hasInnerPointerAssignment(
  */
 predicate hasInnerPointerFunctionCall(
   ValueVariable v, PointerVariable innerPointer,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
-  (
-    innerPointerTaking.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
-    or
-    innerPointerTaking.getAnArgument().getAChild*().(FieldAccess).getQualifier() = v.getAnAccess()
-  ) and
-  innerPointerTaking.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() = innerPointer
+  exists(InnerPointerTakingFunctionByNameCall fc |
+    fc = innerPointerTaking and
+    (
+      fc.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
+      or
+      fc.getAnArgument().getAChild*().(FieldAccess).getQualifier() = v.getAnAccess()
+    ) and
+    fc.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() = innerPointer
+  )
 }
 
 /**
@@ -52,21 +100,21 @@ predicate hasInnerPointerFunctionCall(
  */
 predicate hasInnerPointerTaken(
   ValueVariable v, PointerVariable innerPointer,
-  InnerPointerTakingFunctionByNameCall innerPointerTaking
+  InnerPointerTakingExpr innerPointerTaking
 ) {
   hasInnerPointerAssignment(v, innerPointer, innerPointerTaking)
+  or
+  hasInnerPointerDeclaration(v, innerPointer, innerPointerTaking)
   or
   hasInnerPointerFunctionCall(v, innerPointer, innerPointerTaking)
 }
 
 /**
- * Checks if a pointer variable is used after a GC trigger call.
+ * Checks if a usage node is after a GC trigger call.
  * The usage can be either a direct successor or a successor of the enclosing block.
  */
-predicate isPointerUsedAfterGcTrigger(
-  PointerVariableAccess pointerUsageAccess, GcTriggerCall gcTriggerCall
-) {
-  gcTriggerCall.getASuccessor+() = pointerUsageAccess
+predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
+  gcTriggerCall.getASuccessor+() = usageNode
 }
 
 /*
@@ -80,8 +128,18 @@ predicate isPointerUsedAfterGcTrigger(
  * }
  */
 
+predicate isArgumentToGcTriggerCall(ValueAccess va) {
+  exists(GcTriggerCall call |
+    call.getAnArgument().getAChild*() = va
+  )
+}
+
 predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
   not exists(VariableAccess va |
-    va.getTarget() = v and va = gcTriggerCall.getASuccessor+() and not isGuardAccess(va)
+    va.getTarget() = v and
+    va = gcTriggerCall.getASuccessor+() and
+    not isGuardAccess(va) and
+    not isNoreturnAccess(va) and
+    not isArgumentToGcTriggerCall(va)
   )
 }

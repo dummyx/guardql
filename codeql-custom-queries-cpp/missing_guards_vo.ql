@@ -5,7 +5,7 @@ from ValueVariable v
 where
   exists(
     GcTriggerCall gtc, InnerPointerUsage pointerUsageAccess,
-    InnerPointerTakingFunctionByNameCall innerPointerTaking
+    InnerPointerTakingExpr innerPointerTaking
   |
     needsGuard(v, gtc, pointerUsageAccess, innerPointerTaking)
   ) and

@@ -14,6 +14,8 @@ Quick C fixtures mirroring real RB_GC_GUARD patterns from CRuby (weakmap, prism,
 - `inline_guarded.c` – inline pointer extraction with guard present (expected **good guard**).
 - `redundant_inline_guard.c` – pointer extracted but no GC trigger; guard present (expected **redundant_guard**).
 - `redundant_param_guard.c` – guard on parameter without pointer extraction or GC trigger (expected **redundant_guard**).
+- `scan_args_safe.c` – VALUE copied from an `rb_scan_args` out-param, inner pointer reused across GC trigger (expected **no finding**).
+- `scan_args_reassigned_missing_guard.c` – VALUE copied from `rb_scan_args` then reassigned, inner pointer reused across GC trigger (expected **missing_guard**).
 
 ## Quick run with CodeQL
 ```bash
