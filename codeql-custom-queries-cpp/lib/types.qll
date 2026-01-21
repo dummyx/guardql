@@ -72,6 +72,32 @@ class InnerPointerTakingExpr extends Expr {
     this instanceof InnerPointerTakingFunctionByNameCall
     or
     exists(InnerPointerTakingMacroInvocation mi | this = mi.getExpr())
+    or
+    (
+      this instanceof FunctionCall and
+      this.(FunctionCall).getTarget() instanceof InnerPointerGetterFunction
+    )
+  }
+}
+
+class InnerPointerGetterFunction extends Function {
+  InnerPointerGetterFunction() {
+    this.getType() instanceof PointerType and
+    exists(ValueVariable param |
+      param instanceof Parameter and
+      param.getParentScope() = this and
+      (
+        exists(InnerPointerTakingMacroInvocation mi |
+          mi.getEnclosingFunction() = this and
+          mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + param.getName() + "\\b.*")
+        )
+        or
+        exists(InnerPointerTakingFunctionByNameCall fc |
+          fc.getEnclosingFunction() = this and
+          fc.getAnArgument().(ValueAccess).getTarget() = param
+        )
+      )
+    )
   }
 }
 
@@ -136,7 +162,6 @@ class InnerPointerTakingFunctionByName extends Function {
 
 class InnerPointerUsage extends ControlFlowNode {
   InnerPointerUsage() {
-    this instanceof FunctionCall or
     this instanceof PointerVariableAccess or
     this instanceof InnerPointerTakingExpr
   }

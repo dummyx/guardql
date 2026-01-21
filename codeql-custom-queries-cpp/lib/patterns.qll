@@ -20,8 +20,8 @@ predicate hasInnerPointerAssignment(
   InnerPointerTakingExpr innerPointerTaking
 ) {
   exists(Assignment assignment |
-    assignment.getLValue().getAChild*().(VariableAccess).getTarget() = innerPointer and
-    assignment.getRValue().getAChild*() = innerPointerTaking and
+    assignment.getLValue().(VariableAccess).getTarget() = innerPointer and
+    assignment.getRValue() = innerPointerTaking and
     innerPointerTakingUsesValue(innerPointerTaking, v)
   )
 }
@@ -47,27 +47,25 @@ predicate hasInnerPointerDeclaration(
 }
 
 predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVariable v) {
-  exists(int idx |
-    mi.getUnexpandedArgument(idx).regexpMatch(".*\\b" + v.getName() + "\\b.*")
-  )
+  mi.getEnclosingFunction() = v.getParentScope*().(Function) and
+  mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + v.getName() + "\\b.*")
 }
 
 predicate innerPointerTakingUsesValue(InnerPointerTakingExpr innerPointerTaking, ValueVariable v) {
   exists(InnerPointerTakingFunctionByNameCall fc |
     fc = innerPointerTaking and
+    fc.getAnArgument().(ValueAccess).getTarget() = v
+  )
+  or
+  exists(FunctionCall fc |
+    fc = innerPointerTaking and
+    fc.getTarget() instanceof InnerPointerGetterFunction and
     fc.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
   )
   or
   exists(InnerPointerTakingMacroInvocation mi |
     innerPointerTaking = mi.getExpr() and
-    (
-      exists(ValueAccess va |
-        mi.getAnExpandedElement() = va and
-        va.getTarget() = v
-      )
-      or
-      macroInvocationUsesValue(mi, v)
-    )
+    macroInvocationUsesValue(mi, v)
   )
 }
 
@@ -87,11 +85,9 @@ predicate hasInnerPointerFunctionCall(
   exists(InnerPointerTakingFunctionByNameCall fc |
     fc = innerPointerTaking and
     (
-      fc.getAnArgument().getAChild*().(ValueAccess).getTarget() = v
-      or
-      fc.getAnArgument().getAChild*().(FieldAccess).getQualifier() = v.getAnAccess()
+      fc.getAnArgument().(ValueAccess).getTarget() = v
     ) and
-    fc.getAnArgument().getAChild*().(PointerVariableAccess).getTarget() = innerPointer
+    fc.getAnArgument().(PointerVariableAccess).getTarget() = innerPointer
   )
 }
 
@@ -114,7 +110,15 @@ predicate hasInnerPointerTaken(
  * The usage can be either a direct successor or a successor of the enclosing block.
  */
 predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
-  gcTriggerCall.getASuccessor+() = usageNode
+  usageNode.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
+  (
+    usageNode.getLocation().getStartLine() > gcTriggerCall.getLocation().getEndLine()
+    or
+    (
+      usageNode.getLocation().getStartLine() = gcTriggerCall.getLocation().getStartLine() and
+      usageNode.getLocation().getStartColumn() >= gcTriggerCall.getLocation().getEndColumn()
+    )
+  )
 }
 
 /*
@@ -128,8 +132,10 @@ predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall g
  * }
  */
 
-predicate isArgumentToGcTriggerCall(ValueAccess va) {
+predicate isArgumentToGcTriggerCall(ValueAccess va, GcTriggerCall afterCall) {
   exists(GcTriggerCall call |
+    call.getControlFlowScope() = afterCall.getControlFlowScope() and
+    call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
     call.getAnArgument().getAChild*() = va
   )
 }
@@ -137,9 +143,10 @@ predicate isArgumentToGcTriggerCall(ValueAccess va) {
 predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
   not exists(VariableAccess va |
     va.getTarget() = v and
-    va = gcTriggerCall.getASuccessor+() and
+    va.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
+    va.getLocation().getStartLine() > gcTriggerCall.getLocation().getEndLine() and
     not isGuardAccess(va) and
     not isNoreturnAccess(va) and
-    not isArgumentToGcTriggerCall(va)
+    not isArgumentToGcTriggerCall(va, gcTriggerCall)
   )
 }
