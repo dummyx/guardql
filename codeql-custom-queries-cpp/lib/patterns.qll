@@ -1,7 +1,6 @@
 import guard_checker
 import types
 import cpp
-import semmle.code.cpp.dataflow.new.DataFlow
 import semmle.code.cpp.Macro
 import semmle.code.cpp.exprs.Access
 import semmle.code.cpp.controlflow.ControlFlowGraph
@@ -49,6 +48,32 @@ predicate hasInnerPointerDeclaration(
 predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVariable v) {
   mi.getEnclosingFunction() = v.getParentScope*().(Function) and
   mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + v.getName() + "\\b.*")
+}
+
+predicate hasInnerPointerMacroExpansionAssignment(
+  ValueVariable v, PointerVariable innerPointer,
+  InnerPointerTakingExpr innerPointerTaking
+) {
+  exists(InnerPointerTakingMacroInvocation mi, Assignment assign |
+    mi.getMacroName() in ["RSTRING_GETMEM", "RB_IO_POINTER", "GetOpenFile", "Data_Get_Struct", "TypedData_Get_Struct"] and
+    mi.getAnExpandedElement() = assign and
+    assign.getLValue().(VariableAccess).getTarget() = innerPointer and
+    exprIsOrCastsTo(assign.getRValue(), innerPointerTaking) and
+    innerPointerTakingUsesValue(innerPointerTaking, v)
+  )
+}
+
+predicate hasMacroOutParamByExpansion(
+  ValueVariable v, PointerVariable innerPointer,
+  InnerPointerTakingExpr innerPointerTaking
+) {
+  exists(InnerPointerTakingMacroInvocation mi, Assignment assign |
+    mi.getMacroName() in ["RSTRING_GETMEM", "RB_IO_POINTER", "GetOpenFile", "Data_Get_Struct", "TypedData_Get_Struct"] and
+    innerPointerTaking = mi.getExpr() and
+    mi.getAnExpandedElement() = assign and
+    assign.getLValue().(VariableAccess).getTarget() = innerPointer and
+    macroInvocationUsesValue(mi, v)
+  )
 }
 
 predicate innerPointerTakingUsesValue(InnerPointerTakingExpr innerPointerTaking, ValueVariable v) {
@@ -103,12 +128,17 @@ predicate hasInnerPointerTaken(
   hasInnerPointerDeclaration(v, innerPointer, innerPointerTaking)
   or
   hasInnerPointerFunctionCall(v, innerPointer, innerPointerTaking)
+  or
+  hasInnerPointerMacroExpansionAssignment(v, innerPointer, innerPointerTaking)
+  or
+  hasMacroOutParamByExpansion(v, innerPointer, innerPointerTaking)
 }
 
 /**
  * Checks if a usage node is after a GC trigger call.
  * The usage can be either a direct successor or a successor of the enclosing block.
  */
+pragma[inline]
 predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
   usageNode.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
   (

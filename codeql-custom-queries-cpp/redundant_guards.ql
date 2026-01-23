@@ -5,6 +5,5 @@ from ValueVariable v
 where
   isGuardCandidate(v) and
   hasGuard(v) and
-  not needsGuard(v) and
-  not guardLikelyNeeded(v)
+  not needsGuard(v)
 select v
