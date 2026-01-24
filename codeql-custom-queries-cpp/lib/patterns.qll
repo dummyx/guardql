@@ -47,7 +47,14 @@ predicate hasInnerPointerDeclaration(
 
 predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVariable v) {
   mi.getEnclosingFunction() = v.getParentScope*().(Function) and
-  mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + v.getName() + "\\b.*")
+  (
+    mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + v.getName() + "\\b.*")
+    or
+    exists(ValueAccess va |
+      mi.getExpr().getAChild*() = va and
+      va.getTarget() = v
+    )
+  )
 }
 
 predicate hasInnerPointerMacroExpansionAssignment(

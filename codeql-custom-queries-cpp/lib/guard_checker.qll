@@ -170,6 +170,8 @@ predicate needsGuard(ValueVariable v) {
     needsGuardDirectUsePassed(v, gtc, innerPointerTaking)
   )
   or
+  needsGuardArrayPtrFuncall2(v)
+  or
   needsGuardViaFilePathValue(v)
 }
 
@@ -407,6 +409,18 @@ predicate needsGuardDirectUsePassed(
   not isScanArgsDerivedValue(v, innerPointerTaking)
 }
 
+predicate needsGuardArrayPtrFuncall2(ValueVariable v) {
+  exists(MacroInvocation call, InnerPointerTakingMacroInvocation mi |
+    isTarget(v) and
+    call.getMacroName() = "rb_funcall2" and
+    call.getEnclosingFunction() = v.getParentScope*().(Function) and
+    mi.getMacroName() = "RARRAY_CONST_PTR" and
+    mi.getExpr().getEnclosingStmt() = call.getExpr().getEnclosingStmt() and
+    mi.getExpr().getAChild*().(ValueAccess).getTarget() = v and
+    not isScanArgsDerivedValue(v, mi.getExpr())
+  )
+}
+
 predicate needsGuardViaFilePathValue(ValueVariable v) {
   exists(InnerPointerTakingMacroInvocation mi |
     mi.getMacroName() = "FilePathValue" and
@@ -419,8 +433,13 @@ predicate innerPointerPassedToGcTriggerCall(
   ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gtc
 ) {
   innerPointerTaking.getEnclosingFunction() = gtc.getEnclosingFunction() and
-  isStringInnerPointerTaking(innerPointerTaking) and
-  isPointerConsumingGcTriggerCall(gtc) and
+  (
+    isStringInnerPointerTaking(innerPointerTaking) and
+    isPointerConsumingGcTriggerCall(gtc)
+    or
+    isArrayInnerPointerTaking(innerPointerTaking) and
+    isArrayPointerConsumingGcTriggerCall(gtc)
+  ) and
   (
     innerPointerTaking.getLocation().getEndLine() <= gtc.getLocation().getStartLine()
     or
@@ -441,8 +460,13 @@ predicate pointerVarPassedToGcTriggerCall(
   GcTriggerCall gtc, PointerVariableAccess pointerUsageAccess
 ) {
   pointerUsageAccess.getTarget() = innerPointer and
-  isStringInnerPointerTaking(innerPointerTaking) and
-  isPointerConsumingGcTriggerCall(gtc) and
+  (
+    isStringInnerPointerTaking(innerPointerTaking) and
+    isPointerConsumingGcTriggerCall(gtc)
+    or
+    isArrayInnerPointerTaking(innerPointerTaking) and
+    isArrayPointerConsumingGcTriggerCall(gtc)
+  ) and
   (
     innerPointerTaking.getLocation().getEndLine() <= gtc.getLocation().getStartLine()
     or
@@ -474,6 +498,25 @@ predicate isStringInnerPointerTaking(InnerPointerTakingExpr innerPointerTaking) 
         "StringValuePtr", "StringValueCStr",
         "rb_string_value_ptr", "rb_string_value_cstr"
       ]
+  )
+}
+
+predicate isArrayPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
+  exists(FunctionCall call |
+    call = gtc and
+    call.getTarget().getName() in ["rb_funcall2"]
+  )
+}
+
+predicate isArrayInnerPointerTaking(InnerPointerTakingExpr innerPointerTaking) {
+  exists(InnerPointerTakingMacroInvocation mi |
+    innerPointerTaking = mi.getExpr() and
+    mi.getMacroName() in ["RARRAY_PTR", "RARRAY_CONST_PTR"]
+  )
+  or
+  exists(InnerPointerTakingFunctionByNameCall fc |
+    innerPointerTaking = fc and
+    fc.getTarget().getName() in ["RARRAY_PTR", "RARRAY_CONST_PTR"]
   )
 }
 
