@@ -361,8 +361,6 @@ begin
   end
 
   # Date parsing
-  date_lib = File.expand_path("../../ruby/ext/date/lib", __dir__)
-  $LOAD_PATH.unshift(date_lib) if Dir.exist?(date_lib)
   if require_feature("date")
     run_case("s3e", case_seconds) do
       Date._parse("Tue, 2024-07-05 12:34:56 +0000")
@@ -430,6 +428,12 @@ begin
   # Thread / TracePoint / Proc
   run_case("rb_thread_to_s", case_seconds) do
     Thread.current.to_s
+  end
+
+  run_case("thread_do_start_proc", case_seconds) do |i|
+    args = Array.new(10) { "x" * (128 + (i % 128)) }
+    t = Thread.new(*args) { |*xs| xs.length }
+    t.join
   end
 
   run_case("proc_binding", case_seconds) do
@@ -706,6 +710,32 @@ begin
         Time.now + 3600,
         nil
       )
+    end
+
+    run_case("ossl_evp_md_fetch_i", case_seconds) do
+      key = static_rsa_key
+      cert = OpenSSL::X509::Certificate.new
+      cert.version = 2
+      cert.serial = 2
+      name = OpenSSL::X509::Name.new([["CN", "tsa"]])
+      cert.subject = name
+      cert.issuer = name
+      cert.public_key = key
+      cert.not_before = Time.now
+      cert.not_after = Time.now + 3600
+      cert.sign(key, OpenSSL::Digest.new("SHA256"))
+
+      req = OpenSSL::Timestamp::Request.new
+      req.algorithm = "SHA256"
+      req.message_imprint = OpenSSL::Digest.new("SHA256").digest("data")
+      req.policy_id = "1.2.3.4.5"
+
+      fac = OpenSSL::Timestamp::Factory.new
+      fac.serial_number = 1
+      fac.gen_time = Time.now
+      fac.allowed_digests = ["SHA256", "SHA1"]
+      fac.default_policy_id = "1.2.3.4.5"
+      fac.create_timestamp(key, cert, req)
     end
 
     run_case("ossl_tsfac_create_ts", case_seconds) do
@@ -1047,6 +1077,10 @@ begin
     File.realpath(".")
   end
 
+  run_case("rb_check_realpath_emulate", case_seconds) do
+    File.realdirpath(".././.", Dir.pwd)
+  end
+
   run_case("rb_file_s_extname", case_seconds) do
     File.extname("foo.bar")
   end
@@ -1318,7 +1352,12 @@ begin
   end
 
   # Process
-  ruby_bin = File.expand_path("../../ruby/build-o3/ruby", __dir__)
+  ruby_bin =
+    begin
+      ENV["POC_RUBY"] || (require "rbconfig"; RbConfig.ruby)
+    rescue LoadError
+      ENV["POC_RUBY"] || File.expand_path("../../ruby/build-o3/ruby", __dir__)
+    end
   run_case("fill_envp_buf_i", case_seconds) do
     pid = Process.spawn({ "A" => "1" }, ruby_bin, "-e", "exit")
     Process.wait(pid)
@@ -1368,6 +1407,12 @@ begin
 
   run_case("rb_str_upcase", case_seconds) do
     ("aBc" * 8).upcase
+  end
+
+  run_case("rb_str_s_new", case_seconds) do |i|
+    orig = "a" * (128 + (i % 256))
+    enc = (i % 2).zero? ? Encoding::UTF_8 : "UTF-8"
+    String.new(orig, encoding: enc, capacity: 1024 + (i % 1024))
   end
 
   run_case("str_replace_shared_without_enc", case_seconds) do

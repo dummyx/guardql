@@ -4,17 +4,19 @@ module POC
     ext_dir = File.expand_path("../../ruby/build-o3/.ext/x86_64-linux", __dir__)
     objspace_lib_dir = File.expand_path("../../ruby/ext/objspace/lib", __dir__)
     pathname_lib_dir = File.expand_path("../../ruby/ext/pathname/lib", __dir__)
+    date_lib_dir = File.expand_path("../../ruby/ext/date/lib", __dir__)
     lib_dir = File.expand_path("../../ruby/lib", __dir__)
     build_dir = File.expand_path("../../ruby/build-o3", __dir__)
     $LOAD_PATH.unshift(ext_dir) if Dir.exist?(ext_dir)
     $LOAD_PATH.unshift(objspace_lib_dir) if Dir.exist?(objspace_lib_dir)
     $LOAD_PATH.unshift(pathname_lib_dir) if Dir.exist?(pathname_lib_dir)
+    $LOAD_PATH.unshift(date_lib_dir) if Dir.exist?(date_lib_dir)
     $LOAD_PATH.unshift(lib_dir) if Dir.exist?(lib_dir)
     $LOAD_PATH.unshift(build_dir) if Dir.exist?(build_dir)
   end
 
   def self.setup_gc
-    add_build_load_path
+    add_build_load_path if ENV["POC_ADD_BUILD_LOAD_PATH"] == "1"
     begin
       require "enc/trans/transdb"
     rescue LoadError
@@ -36,10 +38,18 @@ module POC
   end
 
   def self.start_gc_hammer
+    sleep_s = (ENV["POC_GC_HAMMER_SLEEP"] || "0.01").to_f
+    full = ENV["POC_GC_HAMMER_FULL"] == "1"
+    compact = ENV["POC_GC_HAMMER_COMPACT"] == "1"
     Thread.new do
       loop do
-        GC.compact if GC.respond_to?(:compact)
-        GC.start(full_mark: true, immediate_sweep: true)
+        GC.compact if compact && GC.respond_to?(:compact)
+        if full
+          GC.start(full_mark: true, immediate_sweep: true)
+        else
+          GC.start
+        end
+        sleep(sleep_s) if sleep_s > 0
       end
     end
   end

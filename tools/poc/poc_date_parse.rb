@@ -2,15 +2,18 @@
 # Stress Date._parse (date_parse.c / s3e) under GC compaction.
 
 require_relative "poc_utils"
-POC.add_build_load_path
-date_lib = File.expand_path("../../ruby/ext/date/lib", __dir__)
-$LOAD_PATH.unshift(date_lib) if Dir.exist?(date_lib)
-require "date"
 
 STDOUT.sync = true
 Thread.report_on_exception = true
 
 POC.setup_gc
+
+begin
+  require "date"
+rescue LoadError
+  warn "SKIP: missing date"
+  exit 0
+end
 
 duration = (ENV["POC_SECONDS"] || "10").to_i
 

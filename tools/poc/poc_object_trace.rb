@@ -2,13 +2,18 @@
 # Stress ObjectSpace allocation tracing (newobj_i) with GC compaction.
 
 require_relative "poc_utils"
-POC.add_build_load_path
-require "objspace"
 
 STDOUT.sync = true
 Thread.report_on_exception = true
 
 POC.setup_gc
+
+begin
+  require "objspace"
+rescue LoadError
+  warn "SKIP: missing objspace"
+  exit 0
+end
 
 duration = (ENV["POC_SECONDS"] || "10").to_i
 

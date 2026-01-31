@@ -2,13 +2,18 @@
 # Stress Addrinfo#inspect with GC compaction (addrinfo_inspect).
 
 require_relative "poc_utils"
-POC.add_build_load_path
-require "socket"
 
 STDOUT.sync = true
 Thread.report_on_exception = true
 
 POC.setup_gc
+
+begin
+  require "socket"
+rescue LoadError
+  warn "SKIP: missing socket"
+  exit 0
+end
 
 duration = (ENV["POC_SECONDS"] || "10").to_i
 

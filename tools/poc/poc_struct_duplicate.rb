@@ -2,13 +2,18 @@
 # Stress Bug::Struct.new_duplicate_under under GC compaction.
 
 require_relative "poc_utils"
-POC.add_build_load_path
-require "-test-/struct"
 
 STDOUT.sync = true
 Thread.report_on_exception = true
 
 POC.setup_gc
+
+begin
+  require "-test-/struct"
+rescue LoadError
+  warn "SKIP: missing -test-/struct"
+  exit 0
+end
 
 duration = (ENV["POC_SECONDS"] || "10").to_i
 

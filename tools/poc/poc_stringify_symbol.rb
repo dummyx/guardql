@@ -2,13 +2,18 @@
 # Stress StringifySymbols.stringify_symbol under GC compaction.
 
 require_relative "poc_utils"
-POC.add_build_load_path
-require "-test-/load/stringify_symbols"
 
 STDOUT.sync = true
 Thread.report_on_exception = true
 
 POC.setup_gc
+
+begin
+  require "-test-/load/stringify_symbols"
+rescue LoadError
+  warn "SKIP: missing -test-/load/stringify_symbols"
+  exit 0
+end
 
 duration = (ENV["POC_SECONDS"] || "10").to_i
 

@@ -91,6 +91,43 @@ cases = [
 
       puts "OK"
     end
+  ),
+  CaseDef.new(
+    id: "arith_seq_inspect",
+    description: "ArithmeticSequence#inspect (arith_seq_inspect) missing RB_GC_GUARD",
+    run: lambda do |deadline|
+      if GC.respond_to?(:verify_compaction_references=)
+        GC.verify_compaction_references = true
+      end
+      if GC.respond_to?(:auto_compact=)
+        GC.auto_compact = true
+      end
+      begin
+        GC.stress = :immediate
+      rescue ArgumentError, TypeError
+        GC.stress = true
+      end
+
+      Thread.new do
+        loop do
+          GC.compact if GC.respond_to?(:compact)
+          GC.start(full_mark: true, immediate_sweep: true)
+        end
+      end
+
+      Thread.new do
+        loop do
+          junk = Array.new(200) { "x" * 1024 }
+          junk.shuffle!
+        end
+      end
+
+      while now < deadline
+        1.step(10, 2).inspect
+      end
+
+      puts "OK"
+    end
   )
 ]
 
@@ -185,4 +222,3 @@ cases.each do |c|
 end
 
 exit(any_fail ? 1 : 0)
-
