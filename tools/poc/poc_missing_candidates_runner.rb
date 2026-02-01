@@ -141,7 +141,25 @@ cases = [
     description: "Enumerator#inspect (enumerator.c:append_method)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { (1..100).each_cons(2).inspect }
+        klass = Class.new do
+          def initialize(tag)
+            @tag = tag
+          end
+
+          def inspect
+            # Try to trigger compaction while append_method still holds
+            # a raw pointer into the enumerator argument array.
+            50.times { "x" * 10_000 }
+            GC.start(full_mark: true, immediate_sweep: true)
+            GC.compact if GC.respond_to?(:compact)
+            "EVIL#{@tag}"
+          end
+        end
+
+        a1 = klass.new(1)
+        a2 = klass.new(2)
+        enum = (1..100).to_enum(:each_cons, a1, a2)
+        tolerant_loop(deadline) { enum.inspect }
         puts "OK"
       end
     end
@@ -155,7 +173,8 @@ cases = [
         exit 0
       end
       with_pressure do
-        tolerant_loop(deadline) { Date.today.strftime("%Y-%m-%d") }
+        fmt = "%Y-%m-%d\0%H:%M:%S"
+        tolerant_loop(deadline) { Date.today.strftime(fmt) }
         puts "OK"
       end
     end
@@ -352,13 +371,23 @@ cases = [
         exit 0
       end
       with_pressure do
-        tolerant_loop(deadline) do
-          io = StringIO.new
+        # Prefer many *small* streams to keep `tmpbuf` likely embedded.
+        payloads = Array.new(64) { |i| (("a".ord + (i % 3)).chr) * (1 + (i % 16)) }
+        expected = payloads.join
+        io = StringIO.new(+"")
+        payloads.each do |payload|
           gz = Zlib::GzipWriter.new(io)
-          gz.write("a" * 32)
+          gz.write(payload)
           gz.finish
-          data_io = StringIO.new(io.string)
-          Zlib::GzipReader.zcat(data_io)
+        end
+        gz_blob = io.string
+
+        tolerant_loop(deadline) do
+          data_io = StringIO.new(gz_blob)
+          out = Zlib::GzipReader.zcat(data_io)
+          unless out == expected
+            raise("CORRUPTION: zcat output mismatch (got=#{out.bytesize} expected=#{expected.bytesize})")
+          end
         end
         puts "OK"
       end
@@ -447,6 +476,28 @@ cases = [
         tolerant_loop(deadline) do
           x = rand(1000)
           proc { x }.binding.local_variable_get(:x)
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "curry",
+    description: "Proc#curry (proc.c:curry)",
+    run: lambda do |deadline|
+      with_pressure do
+        p = lambda do |a, b, &blk|
+          50.times { "x" * 10_000 }
+          GC.start(full_mark: true, immediate_sweep: true)
+          GC.compact if GC.respond_to?(:compact)
+          blk&.call
+          a.to_s
+          b.to_s
+          nil
+        end
+        curried = p.curry(2)
+        tolerant_loop(deadline) do |i|
+          curried.call(i).call(i + 1) { "y" * 1024 }
         end
         puts "OK"
       end
@@ -545,6 +596,41 @@ cases = [
     run: lambda do |deadline|
       with_pressure do
         tolerant_loop(deadline) { "a\nb\nc\n".lines.to_a }
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "rb_str_format_m",
+    description: "String#% (string.c:rb_str_format_m)",
+    run: lambda do |deadline|
+      with_pressure do
+        klass = Class.new do
+          def initialize(tag)
+            @tag = tag
+          end
+
+          def to_s
+            50.times { "x" * 10_000 }
+            GC.start(full_mark: true, immediate_sweep: true)
+            GC.compact if GC.respond_to?(:compact)
+            "EVIL#{@tag}"
+          end
+        end
+
+        wrap = Class.new do
+          def initialize(i, klass)
+            @i = i
+            @klass = klass
+          end
+
+          def to_ary
+            [@klass.new(@i), @klass.new(@i + 1)]
+          end
+        end
+
+        fmt = "%s-%s"
+        tolerant_loop(deadline) { |i| fmt % wrap.new(i, klass) }
         puts "OK"
       end
     end

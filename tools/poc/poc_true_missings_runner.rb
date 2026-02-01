@@ -128,6 +128,123 @@ cases = [
 
       puts "OK"
     end
+  ),
+  CaseDef.new(
+    id: "append_method",
+    description: "Enumerator#inspect args (append_method) missing RB_GC_GUARD",
+    run: lambda do |deadline|
+      if GC.respond_to?(:verify_compaction_references=)
+        GC.verify_compaction_references = true
+      end
+      if GC.respond_to?(:auto_compact=)
+        GC.auto_compact = true
+      end
+      begin
+        GC.stress = :immediate
+      rescue ArgumentError, TypeError
+        GC.stress = true
+      end
+
+      Thread.new do
+        loop do
+          GC.compact if GC.respond_to?(:compact)
+          GC.start(full_mark: true, immediate_sweep: true)
+        end
+      end
+
+      Thread.new do
+        loop do
+          junk = Array.new(200) { "x" * 1024 }
+          junk.shuffle!
+        end
+      end
+
+      klass = Class.new do
+        def initialize(tag)
+          @tag = tag
+        end
+
+        def inspect
+          50.times { "x" * 10_000 }
+          GC.start(full_mark: true, immediate_sweep: true)
+          GC.compact if GC.respond_to?(:compact)
+          "EVIL#{@tag}"
+        end
+      end
+
+      a1 = klass.new(1)
+      a2 = klass.new(2)
+      enum = (1..100).to_enum(:each_cons, a1, a2)
+
+      while now < deadline
+        enum.inspect
+      end
+
+      puts "OK"
+    end
+  ),
+  CaseDef.new(
+    id: "rb_str_format_m",
+    description: "String#% args (rb_str_format_m) missing RB_GC_GUARD",
+    run: lambda do |deadline|
+      if GC.respond_to?(:verify_compaction_references=)
+        GC.verify_compaction_references = true
+      end
+      if GC.respond_to?(:auto_compact=)
+        GC.auto_compact = true
+      end
+      begin
+        GC.stress = :immediate
+      rescue ArgumentError, TypeError
+        GC.stress = true
+      end
+
+      Thread.new do
+        loop do
+          GC.compact if GC.respond_to?(:compact)
+          GC.start(full_mark: true, immediate_sweep: true)
+        end
+      end
+
+      Thread.new do
+        loop do
+          junk = Array.new(200) { "x" * 1024 }
+          junk.shuffle!
+        end
+      end
+
+      class EvilToS
+        def initialize(tag)
+          @tag = tag
+        end
+
+        def to_s
+          50.times { "x" * 10_000 }
+          GC.start(full_mark: true, immediate_sweep: true)
+          GC.compact if GC.respond_to?(:compact)
+          "EVIL#{@tag}"
+        end
+      end
+
+      class WrapToAry
+        def initialize(i)
+          @i = i
+        end
+
+        def to_ary
+          [EvilToS.new(@i), EvilToS.new(@i + 1)]
+        end
+      end
+
+      fmt = "%s-%s"
+      i = 0
+      while now < deadline
+        fmt % WrapToAry.new(i)
+        i += 1
+      end
+
+      puts "OK"
+    end
   )
 ]
 
