@@ -20,7 +20,7 @@ predicate hasInnerPointerAssignment(
 ) {
   exists(Assignment assignment |
     assignment.getLValue().(VariableAccess).getTarget() = innerPointer and
-    assignment.getRValue() = innerPointerTaking and
+    exprIsOrCastsTo(assignment.getRValue(), innerPointerTaking) and
     innerPointerTakingUsesValue(innerPointerTaking, v)
   )
 }
@@ -40,7 +40,7 @@ predicate hasInnerPointerDeclaration(
 ) {
   exists(VariableDeclarationEntry declEntry |
     declEntry.getVariable() = innerPointer and
-    innerPointer.getInitializer().getExpr() = innerPointerTaking and
+    exprIsOrCastsTo(innerPointer.getInitializer().getExpr(), innerPointerTaking) and
     innerPointerTakingUsesValue(innerPointerTaking, v)
   )
 }
@@ -48,12 +48,12 @@ predicate hasInnerPointerDeclaration(
 predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVariable v) {
   mi.getEnclosingFunction() = v.getParentScope*().(Function) and
   (
-    mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + v.getName() + "\\b.*")
-    or
     exists(ValueAccess va |
       mi.getExpr().getAChild*() = va and
       va.getTarget() = v
     )
+    or
+    mi.getUnexpandedArgument(0).regexpMatch(".*\\b" + v.getName() + "\\b.*")
   )
 }
 
@@ -142,20 +142,15 @@ predicate hasInnerPointerTaken(
 }
 
 /**
- * Checks if a usage node is after a GC trigger call.
- * The usage can be either a direct successor or a successor of the enclosing block.
+ * Holds if `usageNode` is reachable *after* `gcTriggerCall` in the CFG.
+ *
+ * This avoids common false positives when `usageNode` is an argument expression
+ * of `gcTriggerCall` (arguments are evaluated before the call).
  */
 pragma[inline]
 predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
   usageNode.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
-  (
-    usageNode.getLocation().getStartLine() > gcTriggerCall.getLocation().getEndLine()
-    or
-    (
-      usageNode.getLocation().getStartLine() = gcTriggerCall.getLocation().getStartLine() and
-      usageNode.getLocation().getStartColumn() >= gcTriggerCall.getLocation().getEndColumn()
-    )
-  )
+  gcTriggerCall.getASuccessor+() = usageNode
 }
 
 /*
@@ -169,21 +164,54 @@ predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall g
  * }
  */
 
-predicate isArgumentToGcTriggerCall(ValueAccess va, GcTriggerCall afterCall) {
-  exists(GcTriggerCall call |
-    call.getControlFlowScope() = afterCall.getControlFlowScope() and
-    call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
-    call.getAnArgument().getAChild*() = va
-  )
-}
-
 predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
   not exists(VariableAccess va |
     va.getTarget() = v and
     va.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
+    isPointerUsedAfterGcTrigger(va, gcTriggerCall) and
     va.getLocation().getStartLine() > gcTriggerCall.getLocation().getEndLine() and
     not isGuardAccess(va) and
-    not isNoreturnAccess(va) and
-    not isArgumentToGcTriggerCall(va, gcTriggerCall)
+    isValuePassedToCallAfterGcTrigger(va, gcTriggerCall)
+  )
+}
+
+predicate isValuePassedToCallAfterGcTrigger(ValueAccess va, GcTriggerCall afterCall) {
+  exists(FunctionCall call |
+    call.getControlFlowScope() = afterCall.getControlFlowScope() and
+    call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
+    not isHoistableFunction(call.getTarget()) and
+    exists(Expr arg | call.getAnArgument() = arg and exprIsOrCastsTo(arg, va))
+  )
+  or
+  exists(ExprCall call |
+    call.getControlFlowScope() = afterCall.getControlFlowScope() and
+    call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
+    exists(Expr arg | call.getAnArgument() = arg and exprIsOrCastsTo(arg, va))
+  )
+}
+
+predicate isHoistableFunction(Function function) {
+  exists(Attribute attr |
+    attr = function.getAnAttribute() and
+    attr.hasName(["pure", "const"])
+  )
+}
+
+/**
+ * Holds if `p` is (re)assigned after `gcTriggerCall` on some path to `use`.
+ *
+ * This prevents false positives where a pointer variable is reused and
+ * overwritten after the GC trigger (e.g., `GetOpenFile(x, fptr)` occurs again),
+ * so the post-GC use does not actually refer to the pre-GC derived pointer.
+ */
+pragma[inline]
+predicate pointerReassignedAfterGcBeforeUse(
+  PointerVariable p, GcTriggerCall gcTriggerCall, PointerVariableAccess use
+) {
+  exists(Assignment assign |
+    assign.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
+    assign.getLValue().getAChild*().(VariableAccess).getTarget() = p and
+    isPointerUsedAfterGcTrigger(assign, gcTriggerCall) and
+    assign.getASuccessor*() = use
   )
 }

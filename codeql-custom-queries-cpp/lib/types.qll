@@ -146,6 +146,8 @@ class InnerPointerTakingFunctionByName extends Function {
         "rb_errno_ptr",
         "rb_ruby_verbose_ptr",
         "rb_ruby_debug_ptr",
+        "rb_ruby_ast_data_get",
+        "rb_execarg_get",
         "rb_data_typed_object_make",
         "rb_data_typed_object_zalloc",
         "rb_data_typed_object_wrap",
