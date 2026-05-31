@@ -1560,7 +1560,370 @@ cases = [
       end
     end
   )
+
 ]
+
+def recursive_gap_tick(iteration)
+  8.times { ("guardlint-#{iteration}-" * 128).dup.freeze }
+  return unless (iteration % 16).zero?
+
+  GC.start(full_mark: true, immediate_sweep: true)
+  GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+end
+
+def recursive_gap_big_number(iteration)
+  bits = 4096 + (iteration % 11) * 257
+  a = (1 << bits) + (iteration * 17) + 3
+  b = (1 << (bits - 97)) + (iteration * 31) + 5
+  ((a * b) ^ (a & b) ^ (a | b)).to_s(36).bytesize
+  (a * a).to_s(16).bytesize
+  Integer("f" * (128 + iteration % 64), 16)
+end
+
+def recursive_gap_rm_rf(path)
+  if File.directory?(path) && !File.symlink?(path)
+    Dir.children(path).each { |child| recursive_gap_rm_rf(File.join(path, child)) }
+    Dir.rmdir(path) rescue nil
+  else
+    File.delete(path) rescue nil
+  end
+end
+
+def recursive_gap_tempdir(prefix)
+  base = ENV["TMPDIR"] || "/tmp"
+  dir = File.join(base, "#{prefix}-#{$$}-#{(now * 1000).to_i}")
+  Dir.mkdir(dir)
+  yield dir
+ensure
+  recursive_gap_rm_rf(dir) if dir
+end
+
+def recursive_gap_autoload_workload(deadline)
+  tolerant_loop(deadline) do |i|
+    recursive_gap_tick(i)
+    cname = :"GuardLintAutoloadConst#{i % 256}"
+    path = "/tmp/guardlint_missing_autoload_#{$$}_#{i % 256}.rb"
+    Object.__send__(:remove_const, cname) rescue nil
+    Object.autoload(cname, path)
+    Object.const_defined?(cname, false)
+    Object.const_get(cname, false) rescue nil
+    Object.__send__(:remove_const, cname) rescue nil
+  end
+end
+
+def recursive_gap_io_workload(kind, deadline)
+  require "io/nonblock" if kind.to_s.start_with?("io_") || kind == "select" rescue nil
+  tolerant_loop(deadline) do |i|
+    recursive_gap_tick(i)
+    case kind
+    when "io_read_nonblock"
+      r, w = IO.pipe
+      begin
+        r.nonblock = true
+        w.write("x" * 128)
+        r.read_nonblock(32, exception: false)
+      ensure
+        r.close rescue nil
+        w.close rescue nil
+      end
+    when "io_write_nonblock"
+      r, w = IO.pipe
+      begin
+        w.nonblock = true
+        w.write_nonblock("x" * 128, exception: false)
+      ensure
+        r.close rescue nil
+        w.close rescue nil
+      end
+    when "io_reopen"
+      f = File.open(File::NULL, "r")
+      begin
+        f.reopen(File::NULL, "r")
+      ensure
+        f.close rescue nil
+      end
+    when "io_close_exec"
+      r, w = IO.pipe
+      begin
+        r.close_on_exec = i.even?
+        w.close_on_exec = i.odd?
+        r.close_on_exec?
+        w.close_on_exec?
+      ensure
+        r.close rescue nil
+        w.close rescue nil
+      end
+    when "select"
+      r, w = IO.pipe
+      begin
+        IO.select([r], [w], nil, 0)
+      ensure
+        r.close rescue nil
+        w.close rescue nil
+      end
+    when "getline"
+      r, w = IO.pipe
+      begin
+        w.write("line-#{i}\n")
+        w.close
+        r.gets
+      ensure
+        r.close rescue nil
+        w.close rescue nil
+      end
+    end
+  end
+end
+
+def recursive_gap_workload(kind, deadline)
+  with_pressure do
+    case kind
+    when "array_share"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        base = (0...128).to_a
+        shared = base[16, 96]
+        shared.unshift(i, i + 1, i + 2)
+        shared.shift(3)
+        base.clear
+      end
+    when "autoload"
+      recursive_gap_autoload_workload(deadline)
+    when "bignum"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        recursive_gap_big_number(i)
+      end
+    when "env"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        key = "GUARDLINT_POC_ENV_#{i % 32}"
+        ENV[key] = "value-#{i}"
+        ENV.delete(key) if (i % 3).zero?
+        ENV.clear if ENV["GUARDLINT_ALLOW_ENV_CLEAR"] == "1" && (i % 128).zero?
+      end
+    when "feature_index", "load_file"
+      recursive_gap_tempdir("guardlint-load") do |dir|
+        entries = Array.new(16) do |j|
+          stem = "guardlint_feature_#{j}"
+          path = File.join(dir, "#{stem}.rb")
+          File.write(path, "GuardLintFeatureValue#{j} = #{j}\n")
+          [stem, path]
+        end
+        $LOAD_PATH.unshift(dir)
+        begin
+          tolerant_loop(deadline) do |i|
+            recursive_gap_tick(i)
+            stem, path = entries[i % entries.length]
+            require stem rescue nil
+            load path rescue nil
+          end
+        ensure
+          $LOAD_PATH.delete(dir)
+        end
+      end
+    when "fstring"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        a = -"guardlint-fstring-#{i % 256}"
+        b = -"guardlint-fstring-#{(i + 1) % 256}"
+        a == b
+        { a => i }.fetch(a)
+      end
+    when "io_read_nonblock", "io_write_nonblock", "io_reopen", "io_close_exec", "select", "getline"
+      recursive_gap_io_workload(kind, deadline)
+    when "iseq"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        iseq = RubyVM::InstructionSequence.compile("x = #{i}; x + 1")
+        RubyVM::InstructionSequence.load_from_binary(iseq.to_binary).eval rescue iseq.eval
+      end
+    when "name_error"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        begin
+          Object.new.__send__(:"guardlint_missing_#{i}")
+        rescue NameError => e
+          e.message
+          e.to_s
+        end
+      end
+    when "enumerator_next"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        enum = [i, i + 1, i + 2].each
+        enum.next
+        enum.next
+      end
+    when "ractor"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        next unless defined?(Ractor)
+        r = Ractor.new(i) { |v| v + 1 }
+        r.take rescue nil
+      end
+    when "box"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        if defined?(RubyVM::Box) && RubyVM::Box.respond_to?(:new)
+          box = RubyVM::Box.new rescue nil
+          box.object_id if box
+        else
+          mod = Module.new
+          mod.const_set(:"GuardLintBox#{i % 32}", i)
+          mod.constants(false)
+        end
+      end
+    when "set"
+      set_loaded = begin
+        require "set"
+        true
+      rescue LoadError
+        false
+      end
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        if set_loaded
+          a = Set.new((0...64).map { |x| "a#{x + i}" })
+          b = Set.new((32...96).map { |x| "a#{x + i}" })
+          (a & b).to_a
+          a.add("a#{i}")
+        else
+          a = (0...64).map { |x| "a#{x + i}" }
+          b = (32...96).map { |x| "a#{x + i}" }
+          a & b
+        end
+      end
+    when "encoding_converter"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        conv = Encoding::Converter.new("UTF-8", (i.even? ? "UTF-16LE" : "EUC-JP"))
+        conv.convert("guardlint-#{i}")
+        conv.finish rescue nil
+      end
+    when "gc_mark"
+      tolerant_loop(deadline) do |i|
+        objects = Array.new(64) { |j| ["guardlint", i, j, { j => "x" * 32 }] }
+        recursive_gap_tick(i)
+        GC.start(full_mark: true, immediate_sweep: true)
+        objects.hash
+      end
+    when "proc_hash"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        proc { i }.hash
+      end
+    when "object_copy"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        obj = Object.new
+        obj.instance_variable_set(:@guardlint, "x" * 128)
+        obj.dup.instance_variables
+      end
+    when "singleton_method"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        obj = Object.new
+        obj.define_singleton_method(:guardlint_poc) { i }
+        obj.singleton_method(:guardlint_poc)
+        obj.method(:guardlint_poc).call
+      end
+    when "string_chars"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        "a\u0301b#{i}".each_char.to_a
+      end
+    when "string_codepoints"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        "a\u0301b#{i}".each_codepoint.to_a
+      end
+    when "string_graphemes"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        s = "a\u0301b#{i}"
+        s.each_grapheme_cluster.to_a if s.respond_to?(:each_grapheme_cluster)
+      end
+    when "string_casecmp"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        "GuardLint#{i}".casecmp("guardlint#{i}")
+        "GuardLint#{i}".casecmp?("guardlint#{i}")
+      end
+    when "time_at"
+      tolerant_loop(deadline) do |i|
+        recursive_gap_tick(i)
+        Time.at(Rational(i % 1000, 3))
+        Time.at(i % 1_000_000, i % 1_000_000, :usec)
+      end
+    else
+      raise "unknown recursive gap workload: #{kind}"
+    end
+    puts "OK"
+  end
+end
+
+RECURSIVE_GAP_CASES = {
+  "ary_ensure_room_for_unshift" => ["Array#unshift on shared arrays", "array_share"],
+  "rb_ary_cancel_sharing" => ["Array sharing cancellation", "array_share"],
+  "autoload_copy_table_for_box_i" => ["autoload table copy callback", "autoload"],
+  "autoload_data_for_named_constant" => ["autoload lookup for named constants", "autoload"],
+  "autoload_delete" => ["autoload deletion paths", "autoload"],
+  "autoload_load_needed" => ["autoload load-needed checks", "autoload"],
+  "check_autoload_required" => ["autoload/require checks", "autoload"],
+  "rb_autoload_copy_table_for_box" => ["autoload table copy for Box", "autoload"],
+  "bigmul0" => ["large Integer multiplication", "bignum"],
+  "bigsq" => ["large Integer squaring", "bignum"],
+  "rb_big_and" => ["large Integer bitwise AND", "bignum"],
+  "rb_big_mul_balance" => ["balanced large Integer multiplication", "bignum"],
+  "rb_big_mul_karatsuba" => ["Karatsuba large Integer multiplication", "bignum"],
+  "rb_big_mul_toom3" => ["Toom-3 large Integer multiplication", "bignum"],
+  "rb_big_or" => ["large Integer bitwise OR", "bignum"],
+  "rb_big_xor" => ["large Integer bitwise XOR", "bignum"],
+  "str2big_karatsuba" => ["large Integer parsing", "bignum"],
+  "check_getline_args" => ["IO getline argument handling", "getline"],
+  "env_aset" => ["ENV assignment", "env"],
+  "rb_env_clear" => ["ENV clear/assignment paths", "env"],
+  "features_index_add" => ["feature index updates through require", "feature_index"],
+  "fstring_cmp" => ["fstring comparison", "fstring"],
+  "fstring_concurrent_set_cmp" => ["concurrent fstring set comparison", "fstring"],
+  "io_read_nonblock" => ["IO#read_nonblock", "io_read_nonblock"],
+  "io_reopen" => ["IO#reopen", "io_reopen"],
+  "io_write_nonblock" => ["IO#write_nonblock", "io_write_nonblock"],
+  "rb_io_close_on_exec_p" => ["IO close-on-exec query", "io_close_exec"],
+  "rb_io_set_close_on_exec" => ["IO close-on-exec setter", "io_close_exec"],
+  "select_internal" => ["IO.select", "select"],
+  "iseq_build_from_ary_body" => ["InstructionSequence binary load", "iseq"],
+  "rb_iseq_compile_with_option" => ["InstructionSequence compile with options", "iseq"],
+  "load_file_internal" => ["load/require file execution", "load_file"],
+  "name_err_mesg_to_str" => ["NameError message formatting", "name_error"],
+  "next_i" => ["Enumerator#next", "enumerator_next"],
+  "ractor_unmonitor" => ["Ractor lifecycle", "ractor"],
+  "rb_ractor_channel_close" => ["Ractor channel close/lifecycle", "ractor"],
+  "rb_box_local_extension" => ["Box local-extension path when available", "box"],
+  "rb_concurrent_set_find_or_insert" => ["Set/concurrent-set insertion path", "set"],
+  "set_i_intersection" => ["Set intersection", "set"],
+  "rb_econv_init_by_convpath" => ["Encoding converter initialization", "encoding_converter"],
+  "rb_gc_mark_children" => ["GC mark children traversal", "gc_mark"],
+  "rb_hash_proc" => ["Proc#hash", "proc_hash"],
+  "rb_obj_copy_ivar" => ["Object copy ivar path", "object_copy"],
+  "rb_obj_singleton_method" => ["Object#singleton_method", "singleton_method"],
+  "rb_str_enumerate_chars" => ["String#each_char", "string_chars"],
+  "rb_str_enumerate_codepoints" => ["String#each_codepoint", "string_codepoints"],
+  "rb_str_enumerate_grapheme_clusters" => ["String#each_grapheme_cluster", "string_graphemes"],
+  "str_casecmp" => ["String#casecmp and casecmp?", "string_casecmp"],
+  "time_s_at" => ["Time.at", "time_at"]
+}.freeze
+
+cases.concat(
+  RECURSIVE_GAP_CASES.map do |id, (description, kind)|
+    CaseDef.new(
+      id: id,
+      description: "#{description} (recursive-trigger gap PoC)",
+      run: lambda { |deadline| recursive_gap_workload(kind, deadline) }
+    )
+  end
+)
 
 max_id_len = cases.map { |c| c.id.length }.max || 0
 any_fail = false

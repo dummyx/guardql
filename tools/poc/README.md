@@ -32,6 +32,8 @@ missing-guard issues found by the CodeQL queries.
   repeated GC compaction profiles and writes a result CSV.
   - Example: `ruby tools/poc/poc_extreme_campaign.rb --ruby /path/to/ruby --registry tools/poc/current_missing_registry.csv --output /tmp/guardql_current_missing_extreme.csv`
   - Quick check: `ruby tools/poc/poc_extreme_campaign.rb --ruby /path/to/ruby --quick --exclude-confirmed`
+- `tools/poc/poc_parallel_campaign.py`: Runs the same campaign target-by-target with worker-level parallelism, writes per-target logs next to the output, and merges the CSV rows.
+  - Example: `python3 tools/poc/poc_parallel_campaign.py --registry tools/poc/current_missing_registry.csv --output /tmp/guardql_current_missing_extreme.csv --ruby /path/to/ruby --turns 3 --duration 30 --workers 8`
 
 ## Notes
 

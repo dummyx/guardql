@@ -48,7 +48,10 @@ end.parse!
 def runner_ids(path)
   return Set.new unless File.file?(path)
 
-  File.read(path).scan(/id:\s*"([^"]+)"/).flatten.to_set
+  text = File.read(path)
+  ids = text.scan(/id:\s*"([^"]+)"/).flatten
+  ids.concat(text.scan(/^\s*"([^"]+)"\s*=>/).flatten)
+  ids.to_set
 end
 
 def tracked_paths(repo_root)
